@@ -1,0 +1,135 @@
+\textheight=9.25in
+\textwidth=7in
+\topmargin=-0.75in
+\oddsidemargin=-0.25in
+\evensidemargin=-0.25in
+\usepackage{mathtools}
+\usepackage{pgfplots}
+\usepackage[binary-units]{siunitx}
+\usepackage{xstring}
+\usepackage{mdframed}
+\usepackage{amsthm}
+\usepackage{nicematrix}
+\NiceMatrixOptions{transparent,nullify-dots}
+
+\allowdisplaybreaks
+
+\usemintedstyle{xcode}
+
+%%% NAMED SET COMMANDS
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\NN}{\mathbb{N}}
+\newcommand{\ZZ}{\mathbb{Z}}
+\newcommand{\QQ}{\mathbb{Q}}
+\newcommand{\CC}{\mathbb{C}}
+\newcommand{\PP}{\mathbb{P}}
+
+%%% VECTOR COMMAND
+\newcommand{\vect}[2][bold]{
+  \IfEqCase{#1}{%
+    {bold}{\mathbf{#2}}%
+    {arrow}{\overrightarrow{#2}}%
+  }%
+}
+
+\newcommand{\falling}[2]{#1^{\underline{#2}}}
+
+%%% SHORT MATRIX COMMAND
+% Prototype: MACRO mat OPT[#1={b}] OPT[#2={r}] #3
+\makeatletter
+\newcommand{\mat}[1][b]{%
+  \@ifnextchar[{\mat@i[{#1}]}{\mat@i[{#1}][{r}]}%
+}
+
+\def\mat@i[#1][#2]#3{%
+  % Put your code here.
+  % You can refer to the arguments as #1 through #3.
+  \IfEqCase{#1}{%
+    {p}{\begin{pmatrix*}[#2]#3\end{pmatrix*}}%
+    {b}{\begin{bmatrix*}[#2]#3\end{bmatrix*}}%
+    {B}{\begin{Bmatrix*}[#2]#3\end{Bmatrix*}}%
+    {v}{\begin{vmatrix*}[#2]#3\end{vmatrix*}}%
+    {V}{\begin{Vmatrix*}[#2]#3\end{Vmatrix*}}%
+    {s}{\begin{smallmatrix*}[#2]#3\end{smallmatrix*}}%
+    {sp}{\begin{psmallmatrix*}[#2]#3\end{psmallmatrix*}}%
+    {sb}{\begin{bsmallmatrix*}[#2]#3\end{bsmallmatrix*}}%
+    {sB}{\begin{Bsmallmatrix*}[#2]#3\end{Bsmallmatrix*}}%
+    {sv}{\begin{vsmallmatrix*}[#2]#3\end{vsmallmatrix*}}%
+    {sV}{\begin{Vsmallmatrix*}[#2]#3\end{Vsmallmatrix*}}%
+  }%[\begin{#1}#3\end{#1}]
+}
+\makeatother
+
+%%% ANSWER ENVIRONMENT
+\mdfdefinestyle{answerstyle}{innerrightmargin=10pt,innerleftmargin=10pt,frametitle={Answer:},linewidth=2pt}
+\newenvironment{answer}{%
+  \begin{mdframed}[style=answerstyle]
+  \begingroup
+  \setlength{\parindent}{0pt}
+}{
+  \endgroup
+  \end{mdframed}
+}
+% answer environment with indentation 
+\newmdenv[style=answerstyle]{answeri}
+
+%%% EVALUATION BARS
+\newcommand{\evald}{\bigg\rvert}
+\newcommand{\evaldb}{\Bigg\rvert}
+\newcommand{\evalds}{\Big\rvert}
+
+%%% THEOREM ENVIRONMENTS
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{corollary}{Corollary}[theorem]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}{Proposition}[section]
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\theoremstyle{plain}
+
+%%% MANUALLY NUMBERED THEOREM ENVIRONMENTS
+% don't care about numbering since it must be set manually
+\newtheorem{innertheorem}{Theorem}
+\newtheorem{innercorollary}{Corollary}
+\newtheorem{innerlemma}{Lemma}
+\newtheorem{innerproposition}{Proposition}
+
+\theoremstyle{definition}
+\newtheorem{innerdefinition}{Definition}
+\theoremstyle{plain}
+
+\newenvironment{theorem*}[1]{%
+  \renewcommand\theinnertheorem{#1}%
+  \innertheorem
+}{\endinnertheorem}
+
+\newenvironment{lemma*}[1]{%
+  \renewcommand\theinnerlemma{#1}%
+  \innerlemma
+}{\endinnerlemma}
+
+\newenvironment{corollary*}[1]{%
+  \renewcommand\theinnercorollary{#1}%
+  \innercorollary
+}{\endinnercorollary}
+
+\newenvironment{definition*}[1]{%
+  \renewcommand\theinnerdefinition{#1}%
+  \innerdefinition
+}{\endinnerdefinition}
+
+\newenvironment{proposition*}[1]{%
+  \renewcommand\theinnerproposition{#1}%
+  \innerproposition
+}{\endinnerproposition}
+
+%%% MATH OPERATORS
+\DeclareMathOperator{\spn}{span} % linear span
+\DeclareMathOperator{\ann}{ann} % annihilator
+\DeclareMathOperator{\Var}{Var} % variance
+\DeclareMathOperator{\trace}{tr} % variance
+
+\DeclareMathOperator{\NulSp}{Nul} % variance
+\DeclareMathOperator{\ColSp}{Col} % variance
+\newcommand{\dotp}{\boldsymbol{\cdot}} % dot product

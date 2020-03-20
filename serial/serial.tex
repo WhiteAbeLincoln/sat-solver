@@ -1,0 +1,111 @@
+% Created 2020-03-20 Fri 17:13
+% Intended LaTeX compiler: pdflatex
+\documentclass[10pt,AMS Euler]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{minted}
+\input{../preamble.tex} \usepackage{algpseudocode,algorithm}
+\author{Abraham White}
+\date{\today}
+\title{Serial SAT Solver}
+\hypersetup{
+ pdfauthor={Abraham White},
+ pdftitle={Serial SAT Solver},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 26.3 (Org mode 9.2.6)}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\section*{Description}
+\label{sec:org0fa1768}
+The Boolean Satisfiability Problem (SAT) is an NP-complete decision problem,
+where the goal is to find whether there is an assignment of values to boolean variables
+in a propositional formula such that the formula evaluates to true. For example,
+determining whether \[ a \land \neg a \] can be true for some value of \(a\) is
+an SAT problem.
+
+Most SAT solvers take their input as a propositional logic formula in conjunctive normal form (CNF),
+involving variables and the operators \emph{negation} (\(\neg\)), \emph{disjunction} (\(\lor\)), and \emph{conjunction} (\(\land\)). A
+propositional logic formula in CNF is the conjunction of a set of clauses. A \emph{clause} is a disjunction
+of literals, and a \emph{literal} is a boolean variable \(A\) which can be either positive (\(A\)), or negative (\(\neg A\)).
+
+An \emph{interpretation} is a mapping from a CNF formula to the set of truth values \(\{\top,\bot\}\) through assignment
+of truth values to the literals in the formul. SAT solvers use \emph{partial interpretations}, where only some of the
+literals in the formula are assigned truth values. These variables are replaced with their truth values in
+the formula and the formula is then simplified using the rules of propositional logic.
+
+The Boolean Satisfiability Problem is the question of whether there exists an interpretation for a formula such
+that the formula evaluates to \(\top\) under this interpretation.
+
+There are two types of SAT solvers: complete, and stochastic. Complete solvers attempt to
+either find a solution, or show that no solutions exist. Stochastic solvers cannot prove
+that a formula is unsolvable, but can find solutions for specific kinds of problems very
+quickly. We are attempting to build a complete SAT solver.
+
+The majority of modern complete SAT solvers are based on a branch and backtracking algorithm called
+Davis-Putnam-Logemann-Loveland (DPLL), a refinement of the earlier Davis-Putnam algorithm and 
+introduced in 1962 by Martin Davis, George Logemann, and Donald W. Loveland. Many of these solvers
+add additional heuristics on top of the DPLL algorithm, which can increase efficiency, but adds significant
+complexity to the implementation. Because of this, we will only focus on the DPLL algorithm and refrain
+from any heuristical approaches. We use Formalization and Implementation of Modern SAT Solvers
+\cite{formalizationImpl} as a guide in the implementation of our serial SAT solver.
+
+
+\section*{Implementation}
+\label{sec:orga5320f4}
+\begin{algorithm}
+\caption{The recursive DPLL algorithm}
+\label{alg:rec_dpll}
+\begin{algorithmic}[1]
+\Function{dpll}{$F$ : Formula}
+\If {$F$ is empty}
+  \State \Return SAT
+\ElsIf {$F$ contains an empty clause}
+  \State \Return UNSAT
+\ElsIf {$F$ contains a pure literal $l$} \label{alg:rec_dpll_litelim}
+  \State \Return \Call{dpll}{$F[l \to \top]$}
+\ElsIf {$F$ contains a unit clause $[l]$} \label{alg:rec_dpll_unitprop}
+  \State \Return \Call{dpll}{$F[l \to \top]$}
+\Else
+  \State let $l$ be a literal in $F$
+  \If {\Call{dpll}{$F[l \to \top]$} = SAT}
+    \State \Return SAT
+  \Else
+    \State \Return \Call{dpll}{$F[l \to \bot]$}
+  \EndIf
+\EndIf
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+The basic DPLL algorithm can be defined recursively as in Algorithm~\ref{alg:rec_dpll}.
+In the algorithm, \(F[l \to \top]\) denotes the formula obtained by replacing the literal \(l\) with \(\top\) and
+\(\neg l\) with \(\bot\) in \(F\). A literal is pure if it occurs in \(F\) but its opposite does not. A clause is unit
+if it contains only one literal. Unfortunately, this recursive algorithm becomes unusable with larger formulae.
+
+The DPLL algorithm consists of two key steps:
+\begin{enumerate}
+\item \textbf{Literal Elimination}: If some literal is only seen in pure form, we can immediately determine the truth value
+for that literal. For instance, if the literal is in the form \(A\), we know that \(A\) must be \(\top\), and if
+the literal is in the form \(\neg A\), \(A\) must be \(\bot\). This step occurs on line \ref{alg:rec_dpll_litelim} of the
+recursive algorithm .
+\item \textbf{Unit Propogation}: If there is a unit clause then we can immediately assign a truth value in the same way we
+do for literal elimination. This is done on line \ref{alg:rec_dpll_unitprop} of the recursive algorithm.
+\end{enumerate}
+
+\bibliographystyle{unsrt}
+\bibliography{refs}
+\end{document}
