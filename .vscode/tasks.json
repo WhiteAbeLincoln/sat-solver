@@ -1,0 +1,36 @@
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pwd",
+      "type": "shell",
+      "command": "pwd"
+    },
+    {
+      "label": "MPI Build",
+      "type": "shell",
+      "command": "./mpibuild.sh",
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "MPI Run",
+      "type": "shell",
+      "command": "./mpirun.sh",
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    }
+  ]
+}
