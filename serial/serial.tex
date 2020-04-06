@@ -1,4 +1,4 @@
-% Created 2020-03-20 Fri 17:13
+% Created 2020-04-06 Mon 02:35
 % Intended LaTeX compiler: pdflatex
 \documentclass[10pt,AMS Euler]{article}
 \usepackage[utf8]{inputenc}
@@ -30,7 +30,7 @@
 
 \maketitle
 \section*{Description}
-\label{sec:org0fa1768}
+\label{sec:orgbdc9157}
 The Boolean Satisfiability Problem (SAT) is an NP-complete decision problem,
 where the goal is to find whether there is an assignment of values to boolean variables
 in a propositional formula such that the formula evaluates to true. For example,
@@ -55,17 +55,19 @@ either find a solution, or show that no solutions exist. Stochastic solvers cann
 that a formula is unsolvable, but can find solutions for specific kinds of problems very
 quickly. We are attempting to build a complete SAT solver.
 
-The majority of modern complete SAT solvers are based on a branch and backtracking algorithm called
+Many modern complete SAT solvers are based on a branch and backtracking algorithm called
 Davis-Putnam-Logemann-Loveland (DPLL), a refinement of the earlier Davis-Putnam algorithm and 
 introduced in 1962 by Martin Davis, George Logemann, and Donald W. Loveland. Many of these solvers
 add additional heuristics on top of the DPLL algorithm, which can increase efficiency, but adds significant
-complexity to the implementation. Because of this, we will only focus on the DPLL algorithm and refrain
-from any heuristical approaches. We use Formalization and Implementation of Modern SAT Solvers
-\cite{formalizationImpl} as a guide in the implementation of our serial SAT solver.
+complexity to the implementation.
 
+A more recent aproach is the conflict-driven clause learning algorithm (CDCL), inspired by the original DPLL
+algorithm. 
 
 \section*{Implementation}
-\label{sec:orga5320f4}
+\label{sec:orga01365f}
+\subsection*{Recursive DPLL}
+\label{sec:org831a191}
 \begin{algorithm}
 \caption{The recursive DPLL algorithm}
 \label{alg:rec_dpll}
@@ -94,17 +96,234 @@ from any heuristical approaches. We use Formalization and Implementation of Mode
 The basic DPLL algorithm can be defined recursively as in Algorithm~\ref{alg:rec_dpll}.
 In the algorithm, \(F[l \to \top]\) denotes the formula obtained by replacing the literal \(l\) with \(\top\) and
 \(\neg l\) with \(\bot\) in \(F\). A literal is pure if it occurs in \(F\) but its opposite does not. A clause is unit
-if it contains only one literal. Unfortunately, this recursive algorithm becomes unusable with larger formulae.
+if it contains only one literal. The formula is consistent if for every literal in the formula there doesn't
+also exist the opposite. Unfortunately, this recursive algorithm becomes unusable with larger formulae.
 
 The DPLL algorithm consists of two key steps:
 \begin{enumerate}
-\item \textbf{Literal Elimination}: If some literal is only seen in pure form, we can immediately determine the truth value
-for that literal. For instance, if the literal is in the form \(A\), we know that \(A\) must be \(\top\), and if
-the literal is in the form \(\neg A\), \(A\) must be \(\bot\). This step occurs on line \ref{alg:rec_dpll_litelim} of the
-recursive algorithm .
-\item \textbf{Unit Propogation}: If there is a unit clause then we can immediately assign a truth value in the same way we
-do for literal elimination. This is done on line \ref{alg:rec_dpll_unitprop} of the recursive algorithm.
+\item \textbf{Literal Elimination}: If some literal is only seen in pure form, we can immediately determine the
+truth value for that literal. For instance, if the literal is in the form \(A\), we know that \(A\) must be
+\(\top\), and if the literal is in the form \(\neg A\), \(A\) must be \(\bot\). This step occurs on line
+\ref{alg:rec_dpll_litelim} of the recursive algorithm .
+\item \textbf{Unit Propogation}: If there is a unit clause then we can immediately assign a truth value in the same
+way we do for literal elimination. This is done on line \ref{alg:rec_dpll_unitprop} of the recursive
+algorithm.
 \end{enumerate}
+
+For both the DPLL and CDCL algorithms, we will take our input in conjunctive normal form. For implementation,
+we represent literals as integers, with a negative integer being the logical negation of the corresponding
+positive integer. Clauses are represented by a list of these integer literals, and a formula is represented
+by a list of clauses. We exlude 0 from the possible integers.
+For instance, we can encode the formula \((A \lor \neg B \lor \neg C) \land (\neg D \lor E \lor F)\) with
+\begin{minted}[]{c++}
+std::vector<std::vector<int>> formula = {{1, -2, -3}, {-4, 5, 6}};
+\end{minted}
+
+Now we begin the implementation of the recursive DPLL algorithm in C++. Since C++ doesn't
+support tail-recursive calls, we have to transform the recursive algorithm into an iterative one.
+
+First we set up a data structure to keep track of the assignment of truth values, and another to keep
+track of the clauses a literal appears in. We also do some work to recognize pure literals, which
+will be eliminated in a later step.
+
+We define an adjacency list to associate literals with clauses that reference them using
+an unordered map. The \texttt{LitData} struct is used in the undordered map to keep track of the
+clauses where a literal occurs positively (\(x\)), or negatively (\(\neg x\)). The \texttt{ClauseData} struct
+keeps track of the number of its literals assigned true or false which tells us whether the clause
+is satisfied, unsatisfied, or unit.
+\begin{minted}[]{c++}
+struct ClauseData {
+  int n_t = 0;
+  int n_f = 0;
+  std::vector<int> literals;
+  int orig_len;
+  bool sat() { return n_t >= 1; }
+  bool unsat() { return n_f == orig_len; }
+  bool unit() { return n_t == 0 && n_f == (orig_len - 1); }
+};
+struct LitData {
+  int assn = -1;
+  std::vector<std::reference_wrapper<ClauseData>> pos_clauses;
+  std::vector<std::reference_wrapper<ClauseData>> neg_clauses;
+  bool pure() {
+    return assn == -1 && (pos_clauses.size() == 0 || neg_clauses.size() == 0);
+  }
+};
+std::vector<ClauseData> clauses;
+std::unordered_map<int, LitData> literals;
+int remaining;
+void add_literal(int l, const ClauseData& c) {
+  auto s = sign(l);
+  auto pos = l*s;
+  auto it = this->literals.find(pos);
+  LitData data;
+  if (it != this->literals.end()) data = it->second;
+  if (s == 1) {
+    data.pos_clauses.push_back(c);
+  } else {
+    data.neg_clauses.push_back(c);
+  }
+  this->literals.insert_or_assign(pos, data);
+}
+\end{minted}
+
+Now we need a constructor function to handle initializing these data structures from the
+list of list of integers formula representation.
+\begin{minted}[]{c++}
+Formula(std::vector<std::vector<int>> formula) {
+  this->remaining = formula.size();
+  for (auto c : formula) {
+    ClauseData cd;
+    cd.literals = c;
+    cd.orig_len = c.size();
+    this->clauses.push_back(cd);
+    for (auto l : c) this->add_literal(l, cd);
+  }
+}
+\end{minted}
+
+We need to actually implement the recursive DPLL algorithm.
+The algorithm itself is simple, but the helper functions will be more
+complicated.
+\begin{minted}[]{c++}
+bool dpll() {
+  for (auto l : this->literals) {
+    if (l->second->pure()) {
+      this->pure_literal_assign(l->first, l->second);
+    }
+  }
+  for (auto c : this->clauses) {
+    if (c.sat()) continue;
+    if (c.literals.size() == 0) return false;
+    if (c.unit()) this->unit_propogate(c);
+  }
+  if (this->remaining == 0) return true;
+  auto l = this->get_branching_variable();
+  this->set_var(l);
+  if (this->dpll() == true) return true;
+  this->unset_var(l);
+  this->set_var(-l);
+  return this->dpll();
+}
+\end{minted}
+The implementation goes as follows:
+First we handle the pure literal step, which removes whole clauses from
+consideration by assigning truth values. We use the \texttt{pure\_literal\_assign}
+function to set a value for the literals. First we determine the sign
+of the literal by the clauses it is contained in, since the map removes
+that information from the key. We then make a truth assignment, and 
+update the associated clauses. We remove satisfied clauses from the
+adjacency lists of other literals, since any other truth assignments
+don't matter and the clause doesn't have to be considered any more.
+\begin{minted}[]{c++}
+void remove_satisfied(ClauseData& d) {
+  for (auto l : d.literals) {
+    auto s = sign(l);
+    auto it = this->literals.find(l*s);
+    if (it != this->literals.end()) {
+      if (s == 1) {
+        auto& p = it->second.pos_clauses;
+        p.erase(std::remove(p.begin(), p.end(), d));
+      } else {
+        auto& n = it->second.neg_clauses;
+        n.erase(std::remove(n.begin(), n.end(), d));
+      }
+    }
+  }
+  d.literals.clear();
+}
+void pure_literal_assign(int l, LitData& data) {
+  auto pos_size = data.pos_clauses.size();
+  auto& lclauses = (pos_size == 0) ? data.neg_clauses : data.pos_clauses;
+  data.assn = (pos_size != 0) ? 1 : 0;
+  for (auto& clause : lclauses) {
+    clause.n_t++;
+    this->remaining--;
+    remove_satisfied(clause);
+  }
+}
+\end{minted}
+
+The next loop helps with unit propogation. We skip over clauses that have
+already been satisfied, terminate when we have a clause that is empty,
+i.e. there was a conflicting literal asignment, and then propogate
+when the clause is unit. We use the \texttt{unit\_propogate} function to
+make a truth asignment for the unit literal. Internally, all \texttt{unit\_propogate}
+does is change the formula by setting a truth assignment for the unit
+literal.
+\begin{minted}[]{c++}
+void unit_propogate(ClauseData& clause) {
+  auto l = clause.literals[0];
+  this->set_var(l);
+}
+void set_var(int l) {
+  auto s = sign(l);
+  auto it = this->literals.find(l*s);
+  if (it == this->literals.end())
+    throw std::runtime_error("Couldn't find literal for assignment");
+  if (it->second.assn != -1)
+    throw std::runtime_error("Literal already assigned");
+  LitData& lit = it->second;
+  lit.assn = s == 1 ? 1 : 0;
+  auto& sat_c = (lit.assn == 1) ? lit.pos_clauses : lit.neg_clauses;
+  auto& unsat_c = (lit.assn == 0) ? lit.pos_clauses : lit.neg_clauses;
+  for (auto& clause : sat_c) {
+    clause.n_t++;
+    this->remaining--;
+    remove_satisfied(clause);
+  }
+  for (auto& clause : unsat_c) {
+    clause.n_f++;
+    clause.literals.erase(std::remove(clause.literals.begin(),
+                                      clause.literals.end(),
+                                      (s == 1) ? -l : l));
+  }
+}
+\end{minted}
+
+We then check if there are no remaining unsatisfied clauses, returning true
+if we have satisfied all. Finally, we pick a variable using a heuristic
+and branch, backtracking if the first choice of assignment doesn't work.
+For this we use the \texttt{get\_branching\_variable} function to determine
+a branching variable using a heuristic, and the \texttt{set\_var} and \texttt{unset\_var}
+functions to handle changing the formula and backtracking.
+
+\subsection*{CDCL}
+\label{sec:org63ac0db}
+\section*{Appendix}
+\label{sec:org5b160e7}
+\subsection*{Helper Code}
+\label{sec:orgaeb53b2}
+\subsubsection*{sign}
+\label{sec:org4d0b854}
+Apparently the standard \texttt{copysign} is slow
+\begin{minted}[]{c++}
+int sign(int x) {
+  return ( (x > 0) ? 1
+         : (x < 0) ? -1
+         : 0);
+}
+\end{minted}
+\subsubsection*{Read Input}
+\label{sec:orgb2c67e5}
+\begin{minted}[]{c++}
+auto read_input() {
+  std::vector<std::vector<int>> f;
+  for (std::string l; std::getline(std::cin, l);) {
+    std::stringstream ss(l);
+    std::string word;
+    std::vector<int> clause;
+    while (ss >> word) {
+      int v = std::stoi(word);
+      if (v == 0) throw std::invalid_argument("0 cannot be a literal");
+      clause.push_back(v);
+    }
+    f.push_back(clause);
+  }
+  
+  return f;
+}
+\end{minted}
 
 \bibliographystyle{unsrt}
 \bibliography{refs}
