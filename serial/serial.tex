@@ -1,4 +1,4 @@
-% Created 2020-04-13 Mon 21:07
+% Created 2020-04-14 Tue 12:02
 % Intended LaTeX compiler: pdflatex
 \documentclass[10pt,AMS Euler]{article}
 \usepackage[utf8]{inputenc}
@@ -30,7 +30,7 @@
 
 \maketitle
 \section*{Description}
-\label{sec:org5ac34e3}
+\label{sec:orgf88ab85}
 The Boolean Satisfiability Problem (SAT) is an NP-complete decision problem,
 where the goal is to find whether there is an assignment of values to boolean variables
 in a propositional formula such that the formula evaluates to true. For example,
@@ -65,7 +65,7 @@ A more recent aproach is the conflict-driven clause learning algorithm (CDCL), i
 algorithm. 
 
 \section*{Implementation}
-\label{sec:org3f4a953}
+\label{sec:orgd4ad5e0}
 \begin{algorithm}
 \caption{The recursive DPLL algorithm}
 \label{alg:rec_dpll}
@@ -192,7 +192,7 @@ std::tuple<bool, Formula> dpll(Formula& f, BranchRule rule) {
 \end{minted}
 
 \subsection*{Literal Elimination}
-\label{sec:orgf1ddb12}
+\label{sec:orgd62fc74}
 First we handle the pure literal step, which removes whole clauses from
 consideration by assigning truth values. In the \texttt{pure\_literal\_assign}
 function, we determine the sign of the literal by the clauses it is
@@ -212,7 +212,7 @@ void pure_literal_assign(Formula& f, Formula::LitData& data) {
 \end{minted}
 
 \subsection*{Unit Propogation}
-\label{sec:org39501d7}
+\label{sec:org90f6244}
 The next loop in the dpll implementation helps with unit propogation.
 We skip over clauses that have already been satisfied, terminating when we
 have a clause that is empty, i.e. there was a conflicting literal asignment.
@@ -227,7 +227,7 @@ bool unit_propogate(Formula& f, Formula::ClauseData clause) {
 \end{minted}
 
 \subsection*{Branching}
-\label{sec:org6ffa496}
+\label{sec:org9d852fe}
 Back in the dpll implmentation, we check if there are any remaining undetermined
 clauses, returning true if we have satisfied all. Finally, we pick a
 variable using a heuristic and branch, backtracking if the first choice of
@@ -254,7 +254,7 @@ int get_branching_variable(Formula f, BranchRule rule) {
 \end{minted}
 
 \subsection*{Branching Rules}
-\label{sec:orge202a3a}
+\label{sec:org26f6a89}
 Branching rules are used for choosing which literal to set to true during
 the last step of the DPLL algorithm. These are typically based on heuristics,
 and various strategies have been formalized in papers over the years.
@@ -269,7 +269,7 @@ than one variable maximizes \(\Phi\) are broken by some rule.
 Usually \(w(F,u)\) is defined in terms of the number of clauses of length \(k\) in \(F\) that contain the
 literal \(u\), denoted \(d_k(F, u)\). A selection of some branching rules follow:
 \subsubsection*{Dynamic Largest Individual Sum (DLIS)}
-\label{sec:orgcf21bdf}
+\label{sec:org4e68b9e}
 \begin{align*}
 w(F,u) &= \sum_k d_k(F,u) \\
 \Phi(x,y) &= \max\{x,y\}
@@ -285,7 +285,7 @@ auto dlis(Formula f, int l) {
 }
 \end{minted}
 \subsubsection*{Dynamic Largest Combined Sum (DLCS)}
-\label{sec:org2bbeb17}
+\label{sec:org30c3559}
 \begin{align*}
 w(F,u) &= \sum_k d_k(F,u) \\
 \Phi(x,y) &= x + y
@@ -298,7 +298,7 @@ auto dlcs(Formula f, int l) {
 }
 \end{minted}
 \subsubsection*{Jeroslow-Wang (JW) rule}
-\label{sec:org2d1451e}
+\label{sec:orgbb44a4a}
 \begin{align*}
 w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
 \Phi(x,y) &= \max\{x,y\}
@@ -316,7 +316,7 @@ auto jw(Formula f, int l) {
 }
 \end{minted}
 \subsubsection*{2-Sided Jeroslow-Wang rule}
-\label{sec:orgc32a676}
+\label{sec:org1f5c697}
 \begin{align*}
 w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
 \Phi(x,y) &= x + y
@@ -334,7 +334,7 @@ auto jw2(Formula f, int l) {
 }
 \end{minted}
 \subsubsection*{DSJ rule}
-\label{sec:orgf40ee2b}
+\label{sec:orgee8bf4a}
 \begin{align*}
 w(F,u) &= 4d_2(F,u) + 2d_3(F,u) + \sum_{k\geq 4} d_k(F,u) \\
 \Phi(x,y) &= (x+1)(y+1)
@@ -353,7 +353,7 @@ auto dsj(Formula f, int l) {
 \end{minted}
 
 \subsection*{Assigning literals and removing satsified clauses}
-\label{sec:org30726a6}
+\label{sec:org6d81e89}
 We can remove satisfied clauses from the graph using the \texttt{remove\_satisfied}
 function. This function first increments the number of literals assigned true
 contained in the clause, and decrements the number of remaining unsatisfied
@@ -412,11 +412,11 @@ bool set_var(Formula& f, int l) {
 }
 \end{minted}
 \section*{Appendix}
-\label{sec:org3e11fc8}
+\label{sec:org958965b}
 \subsection*{Helper Code}
-\label{sec:org4f85823}
+\label{sec:org36374a2}
 \subsubsection*{Read Input}
-\label{sec:org69d1bf0}
+\label{sec:org2583be7}
 Reads input from stdin as the DIMACS cnf format.
 \begin{minted}[]{c++}
 auto read_input() {
@@ -455,13 +455,13 @@ auto read_input() {
 }
 \end{minted}
 \subsubsection*{Branching Enum}
-\label{sec:org3c6a9d6}
+\label{sec:org0ca2c38}
 Used to specify the choice of branching rule
 \begin{minted}[]{c}
 enum class BranchRule { dlis, dlcs, jw, jw2, dsj };
 \end{minted}
 \subsubsection*{Branching Helpers}
-\label{sec:orgd578f69}
+\label{sec:org894a819}
 Included here to save space in the main section.
 \begin{minted}[]{c}
 int nclauses(Formula f, int k, int u) {
@@ -497,7 +497,7 @@ int apply_rule(Formula f, std::function<std::tuple<int,int,int>(Formula, int)> r
 }
 \end{minted}
 \subsubsection*{Full Source}
-\label{sec:orgb95bc41}
+\label{sec:org6050795}
 See \texttt{serial\_dpll.cpp}
 \bibliographystyle{unsrt}
 \bibliography{refs}

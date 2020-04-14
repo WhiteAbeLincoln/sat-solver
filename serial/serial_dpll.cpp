@@ -291,19 +291,19 @@ Formula::Formula(std::vector<std::vector<int>> formula)
 }
 
 void print_graph(Formula formula) {
-  std::cerr << "digraph literal {" << std::endl;
+  std::cout << "digraph literal {" << std::endl;
   for (long unsigned int i = 0; i < formula.clauses.size(); ++i) {
-    std::cerr << i << " [shape=box];" << std::endl;
+    std::cout << "c" << i << " [shape=box];" << std::endl;
   }
   for (auto l : formula.literals) {
     for (auto c : l.second.pos_clauses) {
-      std::cerr << l.first << " -> " << c << ";" << std::endl;
+      std::cout << l.first << " -> c" << c << ";" << std::endl;
     }
     for (auto c : l.second.neg_clauses) {
-      std::cerr << -l.first << " -> " << c << ";" << std::endl;
+      std::cout << -l.first << " -> c" << c << ";" << std::endl;
     }
   }
-  std::cerr << "}" << std::endl;
+  std::cout << "}" << std::endl;
 }
 
 void help(std::string name) {
@@ -319,7 +319,7 @@ int main(int argc, char** argv) {
   std::string input = "";
   BranchRule rule = BranchRule::dlis;
   bool do_graph = false;
-  while ((opt = getopt(argc, argv, "hvr:")) != -1) {
+  while ((opt = getopt(argc, argv, "hpr:")) != -1) {
     switch (opt) {
       case 'h': {
         help(argv[0]);
