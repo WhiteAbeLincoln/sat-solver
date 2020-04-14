@@ -1,4 +1,4 @@
-% Created 2020-04-13 Mon 18:47
+% Created 2020-04-13 Mon 21:07
 % Intended LaTeX compiler: pdflatex
 \documentclass[10pt,AMS Euler]{article}
 \usepackage[utf8]{inputenc}
@@ -30,7 +30,7 @@
 
 \maketitle
 \section*{Description}
-\label{sec:org13ea6b3}
+\label{sec:org5ac34e3}
 The Boolean Satisfiability Problem (SAT) is an NP-complete decision problem,
 where the goal is to find whether there is an assignment of values to boolean variables
 in a propositional formula such that the formula evaluates to true. For example,
@@ -65,7 +65,7 @@ A more recent aproach is the conflict-driven clause learning algorithm (CDCL), i
 algorithm. 
 
 \section*{Implementation}
-\label{sec:orgbd91c40}
+\label{sec:org3f4a953}
 \begin{algorithm}
 \caption{The recursive DPLL algorithm}
 \label{alg:rec_dpll}
@@ -80,7 +80,7 @@ algorithm.
 \ElsIf {$F$ contains a unit clause $[l]$} \label{alg:rec_dpll_unitprop}
   \State \Return \Call{dpll}{$F[l \to \top]$}
 \Else
-  \State let $l$ be a literal in $F$
+  \State let $l$ be a literal in $F$ \label{alg:rec_dpll_branch}
   \If {\Call{dpll}{$F[l \to \top]$} = SAT}
     \State \Return SAT
   \Else
@@ -94,8 +94,7 @@ algorithm.
 The basic DPLL algorithm can be defined recursively as in Algorithm~\ref{alg:rec_dpll}.
 In the algorithm, \(F[l \to \top]\) denotes the formula obtained by replacing the literal \(l\) with \(\top\) and
 \(\neg l\) with \(\bot\) in \(F\). A literal is pure if it occurs in \(F\) but its opposite does not. A clause is unit
-if it contains only one literal. The formula is consistent if for every literal in the formula there doesn't
-also exist the opposite. Unfortunately, this recursive algorithm becomes unusable with larger formulae.
+if it contains only one literal.
 
 The DPLL algorithm consists of two key steps:
 \begin{enumerate}
@@ -122,14 +121,17 @@ support tail-recursive calls, we have to transform the recursive algorithm into 
 iterative one.
 
 First we set up a data structure to keep track of the assignment of truth values, and another to keep
-track of the clauses a literal appears in. We also do some work to recognize pure literals, which
-will be eliminated in a later step.
+track of the clauses a literal appears in and allow identifying pure literals.
 
-We define an adjacency list to associate literals with clauses that reference them using
-an unordered map. The \texttt{LitData} struct is used in the undordered map to keep track of the
-clauses where a literal occurs positively (\(x\)), or negatively (\(\neg x\)). The \texttt{ClauseData} struct
-keeps track of the number of its literals assigned true or false which tells us whether the clause
-is satisfied, unsatisfied, or unit.
+First we define a data structure to keep track of the formula. We define an adjacency list to
+associate literals with clauses that reference them using an unordered map in the \texttt{literals} variable.
+The \texttt{LitData} struct is used to keep track of the clauses where a literal occurs positively (\(x\)),
+or negatively (\(\neg x\)). This also allows us to easily identify pure literals. We keep a list of 
+clauses in the \texttt{clauses} variable, an array of the \texttt{ClauseData} struct. This structure has an adjacency
+list associating the clause to its member literals, and tracks the number of literals assigned true
+or false which we can use to tell whether the clause is satisfied, unsatisfied, or unit.
+We keep a running tally of the number of clauses that still need to be satisfied with the
+\texttt{remaining} variable.
 \begin{minted}[]{c++}
 struct Formula {
   struct ClauseData {
@@ -152,269 +154,88 @@ struct Formula {
   std::vector<ClauseData> clauses;
   std::unordered_map<int, LitData> literals;
   int remaining;
-  void add_literal(int l, int cpos) {
-    auto s = sign(l);
-    auto pos = l*s;
-    auto it = this->literals.find(pos);
-    LitData data;
-    if (it != this->literals.end()) data = it->second;
-    if (s == 1) {
-      data.pos_clauses.push_back(cpos);
-    } else {
-      data.neg_clauses.push_back(cpos);
-    }
-    this->literals.insert_or_assign(pos, data);
-  }
-  Formula(std::vector<std::vector<int>> formula)
-        : remaining(formula.size()) {
-    for (auto c : formula) {
-      ClauseData cd;
-      cd.literals = c;
-      cd.orig_len = c.size();
-      auto cpos = this->clauses.size();
-      this->clauses.push_back(cd);
-      for (auto l : c) this->add_literal(l, cpos);
-    }
-  }
+  void add_literal(int, int);
+  Formula(std::vector<std::vector<int>>); 
 };
 \end{minted}
 
-We need to actually implement the recursive DPLL algorithm.
+Now we implement the recursive DPLL algorithm.
 The algorithm itself is simple, but the helper functions will be more
-complicated.
-\begin{minted}[]{c++}
-std::tuple<bool, std::vector<int>, std::vector<int>> ret_val(Formula& f, bool sat) {
-  if (!sat) return {false, {}, {}};
-  std::vector<int> assnt;
-  std::vector<int> assnf;
-  for (auto l : f.literals) {
-    if (l.second.assn == 1)
-      assnt.push_back(l.first);
-    if (l.second.assn == 0)
-      assnf.push_back(l.first);
-  }
-  return {true, assnt, assnf};
-}
-std::tuple<bool, std::vector<int>, std::vector<int>> dpll(Formula& f, BranchRule rule) {
-  for (auto& l : f.literals) {
-    if (l.second.pure()) {
-      pure_literal_assign(f, l.first, l.second);
-    }
-  }
-  for (long unsigned int i = 0; i < f.clauses.size(); ++i) {
-    auto c = f.clauses[i];
+complicated. The literal elimination step is on lines 2 and 3,
+unit propogation on line 8, and the branching step on lines 13-21.
+We check for termination because of empty formula on line 11, and termination
+because of empty clause on line 7.
+\begin{minted}[,linenos]{c++}
+std::tuple<bool, Formula> dpll(Formula& f, BranchRule rule) {
+  for (auto& l : f.literals)
+    if (l.second.pure()) pure_literal_assign(f, l.second);
+  
+  for (auto& c : f.clauses) {
     if (c.sat()) continue;
-    if (c.literals.size() == 0) {
-      if (VERBOSE) std::cerr << "VERBOSE: Empty Clause - UNSAT" << std::endl;
-      return ret_val(f, false);
-    }
-    if (c.unit()) {
-      if (VERBOSE) std::cerr << "VERBOSE: Unit Propogate " << i << " ";
-      unit_propogate(f, c);
-    }
+    if (c.literals.size() == 0) return {false, f};
+    if (c.unit())
+      if (!unit_propogate(f, c)) return {false, f};
   }
-  if (f.remaining == 0) {
-    if (VERBOSE) std::cerr << "VERBOSE: No Remaining - SAT" << std::endl;
-    return ret_val(f, true);
-  }
+  
+  if (f.remaining == 0) return {true, f};
+  
   auto l = get_branching_variable(f, rule);
-  if (VERBOSE) std::cerr << "VERBOSE: Branching on " << l << std::endl;
   Formula oldf(f);
   set_var(f, l);
-  auto [res, ts, fs] = dpll(f, rule);
-  if (res) return {res, ts, fs};
-  if (VERBOSE) std::cerr << "VERBOSE: Backtracking" << std::endl;
+  auto [res, ff] = dpll(f, rule);
+  if (res) return {res, ff};
+  
   f = oldf;
-  if (VERBOSE) std::cerr << "VERBOSE: Branching on " << -l << std::endl;
   set_var(f, -l);
   return dpll(f, rule);
 }
 \end{minted}
-The implementation goes as follows:
+
+\subsection*{Literal Elimination}
+\label{sec:orgf1ddb12}
 First we handle the pure literal step, which removes whole clauses from
-consideration by assigning truth values. We use the \texttt{pure\_literal\_assign}
-function to set a value for the literals. First we determine the sign
-of the literal by the clauses it is contained in, since the map removes
-that information from the key. We then make a truth assignment, and 
-update the associated clauses. We remove satisfied clauses from the
-adjacency lists of other literals, since any other truth assignments
-don't matter and the clause doesn't have to be considered any more.
+consideration by assigning truth values. In the \texttt{pure\_literal\_assign}
+function, we determine the sign of the literal by the clauses it is
+contained in, since the map removes that information from the key.
+We then make a truth assignment. Finally, we update the associated clauses,
+removing satisfied clauses from the adjacency lists of other literals,
+since once the clause has a single truth assignment the whole clause can
+be considered true.
 \begin{minted}[]{c++}
-void remove_satisfied(Formula& f, int d) {
-  auto& clause = f.clauses[d];
-  clause.n_t++;
-  f.remaining--;
-  if (VERBOSE) {
-    std::cerr << "VERBOSE: Removing satisfied clause " << d << ", "
-              << f.remaining << " Remaining" << std::endl;
-  }
-  auto lits = clause.literals;
-  for (auto l : lits) {
-    auto s = sign(l);
-    auto& lit = f.literals[l*s];
-    if (s == 1) {
-      auto& p = lit.pos_clauses;
-      p.erase(std::remove(p.begin(), p.end(), d), p.end());
-    } else {
-      auto& n = lit.neg_clauses;
-      n.erase(std::remove(n.begin(), n.end(), d), n.end());
-    }
-  }
-  clause.literals.clear();
-}
-void pure_literal_assign(Formula& f, int l, Formula::LitData& data) {
+void pure_literal_assign(Formula& f, Formula::LitData& data) {
   auto pos_size = data.pos_clauses.size();
   auto s = (pos_size == 0) ? -1 : 1;
-  if (VERBOSE) std::cerr << "VERBOSE: Pure Literal - " << s*l << std::endl;
   auto lclauses = (s == 1) ? data.pos_clauses : data.neg_clauses;
-  data.assn = (pos_size != 0) ? 1 : 0;
-  if (VERBOSE) {
-    std::cerr << "VERBOSE: Assigned " << l << " as "
-              << (data.assn ? "TRUE" : "FALSE") << std::endl;
-  }
+  data.assn = (s == 1) ? 1 : 0;
   for (auto cidx : lclauses) remove_satisfied(f, cidx);
 }
 \end{minted}
 
+\subsection*{Unit Propogation}
+\label{sec:org39501d7}
 The next loop in the dpll implementation helps with unit propogation.
-We skip over clauses that have already been satisfied, terminate when we
-have a clause that is empty, i.e. there was a conflicting literal asignment,
-and then propogate when the clause is unit. We use the \texttt{unit\_propogate} function to
-make a truth asignment for the unit literal. Internally, all \texttt{unit\_propogate}
-does is change the formula by setting a truth assignment for the unit literal.
+We skip over clauses that have already been satisfied, terminating when we
+have a clause that is empty, i.e. there was a conflicting literal asignment.
+We call the \texttt{unit\_propogate} function when the clause is unit, which
+simply creates a truth assignment for the only literal in the clause.
+We return the result of \texttt{set\_var} because a clause may become empty as a result
+of the unit propogation.
 \begin{minted}[]{c++}
-void set_var(Formula& f, int l) {
-  auto s = sign(l);
-  auto pos = l*s;
-  auto& lit = f.literals[pos];
-  if (lit.assn != -1) throw std::runtime_error("literal already assigned");
-  lit.assn = (s == 1) ? 1 : 0;
-  if (VERBOSE) {
-    std::cerr << "VERBOSE: Assigned " << l*s << " as "
-              << (lit.assn ? "TRUE" : "FALSE") << std::endl;
-  }
-  auto sat_c = (lit.assn == 1) ? lit.pos_clauses : lit.neg_clauses;
-  auto& unsat_c = (lit.assn == 0) ? lit.pos_clauses : lit.neg_clauses;
-  for (auto cidx : sat_c) remove_satisfied(f, cidx);
-  for (auto cidx : unsat_c) {
-    auto& clause = f.clauses[cidx];
-    clause.n_f++;
-    if (VERBOSE) {
-      std::cerr << "VERBOSE: Removing " << ((lit.assn == 0) ? pos : -pos)
-                << " from clause " << cidx << std::endl;
-    }
-    clause.literals.erase(std::remove(clause.literals.begin(),
-                                      clause.literals.end(),
-                                      (lit.assn == 0) ? pos : -pos),
-                          clause.literals.end());
-    if (clause.literals.size() == 0) f.remaining--;
-  }
-  unsat_c.clear();
-}
-void unit_propogate(Formula& f, Formula::ClauseData clause) {
-  auto l = clause.literals[0];
-  if (VERBOSE) std::cerr << "[" << l << "]" << std::endl;
-  set_var(f, l);
+bool unit_propogate(Formula& f, Formula::ClauseData clause) {
+  return set_var(f, clause.literals[0]);
 }
 \end{minted}
 
-Back in the dpll implmentation, check if there are any remaining unsatisfied
+\subsection*{Branching}
+\label{sec:org6ffa496}
+Back in the dpll implmentation, we check if there are any remaining undetermined
 clauses, returning true if we have satisfied all. Finally, we pick a
 variable using a heuristic and branch, backtracking if the first choice of
 assignment doesn't work. For this we use the \texttt{get\_branching\_variable} function
 to determine a branching variable using a heuristic, and the \texttt{set\_var}
 function to handle changing the formula.
 
-\subsection*{Branching Rules}
-\label{sec:orgaa737ff}
-Branching rules are used for choosing which literal to set to true during
-the last step of the DPLL algorithm. These are typically based on heuristics,
-and various strategies have been formalized in papers over the years.
-Ouyang \cite{ouyang} created a paradigm which associates with each literal \(u\) a weight \(w(F, u)\),
-and then chooses a function \(\Phi\) of two variables:
-\begin{itemize}
-\item Find a variable \(x\) that maximizes \(\Phi(w(F,x), w(F, \neg x))\); choose \(x\) if
-\(w(F, x) \geq w(F,\neg x)\), choosing \(\neg x\) otherwise. Ties in the case that more
-than one variable maximizes \(\Phi\) are broken by some rule.
-\end{itemize}
-
-Usually \(w(F,u)\) is defined in terms of the number of clauses of length \(k\) in \(F\) that contain the
-literal \(u\), denoted \(d_k(F, u)\). A selection of some branching rules follow:
-\subsubsection*{Dynamic Largest Individual Sum (DLIS)}
-\label{sec:orgbc7957d}
-\begin{align*}
-w(F,u) &= \sum_k d_k(F,u) \\
-\Phi(x,y) &= \max\{x,y\}
-\end{align*}
-
-Notice that \(\sum_k d_k(F,u)\) is simply the number of clauses in which \(u\) is present,
-since \(k\) can range from 1 to \(\infty\).
-\subsubsection*{Dynamic Largest Combined Sum (DLCS)}
-\label{sec:org9762a82}
-\begin{align*}
-w(F,u) &= \sum_k d_k(F,u) \\
-\Phi(x,y) &= x + y
-\end{align*}
-\subsubsection*{Jeroslow-Wang (JW) rule}
-\label{sec:orgeef19cb}
-\begin{align*}
-w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
-\Phi(x,y) &= \max\{x,y\}
-\end{align*}
-\subsubsection*{2-Sided Jeroslow-Wang rule}
-\label{sec:org8a5faa7}
-\begin{align*}
-w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
-\Phi(x,y) &= x + y
-\end{align*}
-\subsubsection*{DSJ rule}
-\label{sec:orgbaaee67}
-\begin{align*}
-w(F,u) &= 4d_2(F,u) + 2d_3(F,u) + \sum_{k\geq 4} d_k(F,u) \\
-\Phi(x,y) &= (x+1)(y+1)
-\end{align*}
-
 \begin{minted}[]{c++}
-auto dlis(Formula f, int l) {
-  int wp = nclauses(f, -1, l);
-  int wn = nclauses(f, -1, -l);
-  return std::make_tuple(wp, wn, std::max(wp, wn));
-}
-auto dlcs(Formula f, int l) {
-  int wp = nclauses(f, -1, l);
-  int wn = nclauses(f, -1, -l);
-  return std::make_tuple(wp, wn, wp + wn);
-}
-auto jw(Formula f, int l) {
-  auto largest_k = get_largest_k(f);
-  int wp = 0;
-  int wn = 0;
-  for (int k = 1; k <= largest_k; ++k) {
-    wp += std::pow(2, -k) * nclauses(f, k, l);
-    wn += std::pow(2, -k) * nclauses(f, k, -l);
-  }
-  return std::make_tuple(wp, wn, std::max(wp, wn));
-}
-auto jw2(Formula f, int l) {
-  auto largest_k = get_largest_k(f);
-  int wp = 0;
-  int wn = 0;
-  for (int k = 1; k <= largest_k; ++k) {
-    wp += std::pow(2, -k) * nclauses(f, k, l);
-    wn += std::pow(2, -k) * nclauses(f, k, -l);
-  }
-  return std::make_tuple(wp, wn, wp + wn);
-}
-auto dsj(Formula f, int l) {
-  auto largest_k = get_largest_k(f);
-  int wp = 4*nclauses(f, 2, l) + 2*nclauses(f, 3, l);
-  int wn = 4*nclauses(f, 2, -l) + 2*nclauses(f, 3, -l);
-  for (int k = 4; k <= largest_k; ++k) {
-    wp += nclauses(f, k, l);
-    wn += nclauses(f, k, -l);
-  }
-  return std::make_tuple(wp, wn, (wp+1)*(wn+1));
-}
 int get_branching_variable(Formula f, BranchRule rule) {
   switch (rule) {
     case BranchRule::dlis:
@@ -432,22 +253,170 @@ int get_branching_variable(Formula f, BranchRule rule) {
 }
 \end{minted}
 
-\section*{Appendix}
-\label{sec:org723a2be}
-\subsection*{Helper Code}
-\label{sec:org6edef4e}
-\subsubsection*{sign}
-\label{sec:org4f7eba2}
-Apparently the standard \texttt{copysign} is slow
+\subsection*{Branching Rules}
+\label{sec:orge202a3a}
+Branching rules are used for choosing which literal to set to true during
+the last step of the DPLL algorithm. These are typically based on heuristics,
+and various strategies have been formalized in papers over the years.
+Ouyang \cite{ouyang} created a paradigm which associates with each literal \(u\) a weight \(w(F, u)\),
+and then chooses a function \(\Phi\) of two variables:
+\begin{itemize}
+\item Find a variable \(x\) that maximizes \(\Phi(w(F,x), w(F, \neg x))\); choose \(x\) if
+\(w(F, x) \geq w(F,\neg x)\), choosing \(\neg x\) otherwise. Ties in the case that more
+than one variable maximizes \(\Phi\) are broken by some rule.
+\end{itemize}
+
+Usually \(w(F,u)\) is defined in terms of the number of clauses of length \(k\) in \(F\) that contain the
+literal \(u\), denoted \(d_k(F, u)\). A selection of some branching rules follow:
+\subsubsection*{Dynamic Largest Individual Sum (DLIS)}
+\label{sec:orgcf21bdf}
+\begin{align*}
+w(F,u) &= \sum_k d_k(F,u) \\
+\Phi(x,y) &= \max\{x,y\}
+\end{align*}
+
+Notice that \(\sum_k d_k(F,u)\) is simply the number of clauses in which \(u\) is present,
+since \(k\) can range from 1 to \(\infty\).
 \begin{minted}[]{c++}
-int sign(int x) {
-  return ( (x > 0) ? 1
-         : (x < 0) ? -1
-         : 0);
+auto dlis(Formula f, int l) {
+  int wp = nclauses(f, -1, l);
+  int wn = nclauses(f, -1, -l);
+  return std::make_tuple(wp, wn, std::max(wp, wn));
 }
 \end{minted}
+\subsubsection*{Dynamic Largest Combined Sum (DLCS)}
+\label{sec:org2bbeb17}
+\begin{align*}
+w(F,u) &= \sum_k d_k(F,u) \\
+\Phi(x,y) &= x + y
+\end{align*}
+\begin{minted}[]{c++}
+auto dlcs(Formula f, int l) {
+  int wp = nclauses(f, -1, l);
+  int wn = nclauses(f, -1, -l);
+  return std::make_tuple(wp, wn, wp + wn);
+}
+\end{minted}
+\subsubsection*{Jeroslow-Wang (JW) rule}
+\label{sec:org2d1451e}
+\begin{align*}
+w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
+\Phi(x,y) &= \max\{x,y\}
+\end{align*}
+\begin{minted}[]{c++}
+auto jw(Formula f, int l) {
+  auto largest_k = get_largest_k(f);
+  int wp = 0;
+  int wn = 0;
+  for (int k = 1; k <= largest_k; ++k) {
+    wp += std::pow(2, -k) * nclauses(f, k, l);
+    wn += std::pow(2, -k) * nclauses(f, k, -l);
+  }
+  return std::make_tuple(wp, wn, std::max(wp, wn));
+}
+\end{minted}
+\subsubsection*{2-Sided Jeroslow-Wang rule}
+\label{sec:orgc32a676}
+\begin{align*}
+w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
+\Phi(x,y) &= x + y
+\end{align*}
+\begin{minted}[]{c++}
+auto jw2(Formula f, int l) {
+  auto largest_k = get_largest_k(f);
+  int wp = 0;
+  int wn = 0;
+  for (int k = 1; k <= largest_k; ++k) {
+    wp += std::pow(2, -k) * nclauses(f, k, l);
+    wn += std::pow(2, -k) * nclauses(f, k, -l);
+  }
+  return std::make_tuple(wp, wn, wp + wn);
+}
+\end{minted}
+\subsubsection*{DSJ rule}
+\label{sec:orgf40ee2b}
+\begin{align*}
+w(F,u) &= 4d_2(F,u) + 2d_3(F,u) + \sum_{k\geq 4} d_k(F,u) \\
+\Phi(x,y) &= (x+1)(y+1)
+\end{align*}
+\begin{minted}[]{c++}
+auto dsj(Formula f, int l) {
+  auto largest_k = get_largest_k(f);
+  int wp = 4*nclauses(f, 2, l) + 2*nclauses(f, 3, l);
+  int wn = 4*nclauses(f, 2, -l) + 2*nclauses(f, 3, -l);
+  for (int k = 4; k <= largest_k; ++k) {
+    wp += nclauses(f, k, l);
+    wn += nclauses(f, k, -l);
+  }
+  return std::make_tuple(wp, wn, (wp+1)*(wn+1));
+}
+\end{minted}
+
+\subsection*{Assigning literals and removing satsified clauses}
+\label{sec:org30726a6}
+We can remove satisfied clauses from the graph using the \texttt{remove\_satisfied}
+function. This function first increments the number of literals assigned true
+contained in the clause, and decrements the number of remaining unsatisfied
+clauses in the formula. Next we iterate over the associated literals for the clause,
+removing the clause from that literal's adjacency list. Finally, we remove all literals
+from the clause's adjacency list.
+\begin{minted}[]{c++}
+void remove_satisfied(Formula& f, int d) {
+  auto& clause = f.clauses[d];
+  clause.n_t++;
+  f.remaining--;
+  auto lits = clause.literals;
+  for (auto l : lits) {
+    auto s = sign(l);
+    auto& lit = f.literals[l*s];
+    if (s == 1) {
+      auto& p = lit.pos_clauses;
+      p.erase(std::remove(p.begin(), p.end(), d), p.end());
+    } else {
+      auto& n = lit.neg_clauses;
+      n.erase(std::remove(n.begin(), n.end(), d), n.end());
+    }
+  }
+  clause.literals.clear();
+}
+\end{minted}
+We set a truth assignment for a literal using the \texttt{set\_var} function.
+We first determine an assignment based on whether the literal is positive or negative.
+Next, we determine out of the clauses that the literal is present in, which are unsatisified
+by the change, and which are satsified. We remove the satisfied clauses using the
+\texttt{remove\_satisfied} function. Since a disjunction is not false until all members are false,
+we can remove the literal from all unsatisfied clauses, also incrementing the number
+of false literals in that clause. If a clause becomes empty as a result of setting the
+variable we return early, as this interpretation of the formula is unsat.
+\begin{minted}[]{c++}
+bool set_var(Formula& f, int l) {
+  auto s = sign(l);
+  auto pos = l*s;
+  auto& lit = f.literals[pos];
+  if (lit.assn != -1) throw std::runtime_error("literal already assigned");
+  lit.assn = (s == 1) ? 1 : 0;
+  auto sat_c = (lit.assn == 1) ? lit.pos_clauses : lit.neg_clauses;
+  auto& unsat_c = (lit.assn == 0) ? lit.pos_clauses : lit.neg_clauses;
+  for (auto cidx : sat_c) remove_satisfied(f, cidx);
+  for (auto cidx : unsat_c) {
+    auto& clause = f.clauses[cidx];
+    clause.n_f++;
+    clause.literals.erase(std::remove(clause.literals.begin(),
+                                      clause.literals.end(),
+                                      (lit.assn == 0) ? pos : -pos),
+                          clause.literals.end());
+    if (clause.literals.size() == 0) return false;
+  }
+  unsat_c.clear();
+  return true;
+}
+\end{minted}
+\section*{Appendix}
+\label{sec:org3e11fc8}
+\subsection*{Helper Code}
+\label{sec:org4f85823}
 \subsubsection*{Read Input}
-\label{sec:orgc93bc3e}
+\label{sec:org69d1bf0}
 Reads input from stdin as the DIMACS cnf format.
 \begin{minted}[]{c++}
 auto read_input() {
@@ -486,13 +455,13 @@ auto read_input() {
 }
 \end{minted}
 \subsubsection*{Branching Enum}
-\label{sec:org8d26f45}
+\label{sec:org3c6a9d6}
 Used to specify the choice of branching rule
 \begin{minted}[]{c}
 enum class BranchRule { dlis, dlcs, jw, jw2, dsj };
 \end{minted}
 \subsubsection*{Branching Helpers}
-\label{sec:org4f5984f}
+\label{sec:orgd578f69}
 Included here to save space in the main section.
 \begin{minted}[]{c}
 int nclauses(Formula f, int k, int u) {
@@ -528,7 +497,7 @@ int apply_rule(Formula f, std::function<std::tuple<int,int,int>(Formula, int)> r
 }
 \end{minted}
 \subsubsection*{Full Source}
-\label{sec:org8d78423}
+\label{sec:orgb95bc41}
 See \texttt{serial\_dpll.cpp}
 \bibliographystyle{unsrt}
 \bibliography{refs}

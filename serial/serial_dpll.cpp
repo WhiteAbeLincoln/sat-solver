@@ -10,15 +10,11 @@
 #include <string>
 #include <cmath>
 
-bool VERBOSE = false;
-
-/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::sign][sign]] */
 int sign(int x) {
   return ( (x > 0) ? 1
          : (x < 0) ? -1
          : 0);
 }
-/* sign ends here */
 /* [[file:~/Documents/Projects/sat-solver/serial/serial.org::read_input][read_input]] */
 auto read_input() {
   bool cnf_mode = false;
@@ -80,41 +76,15 @@ struct Formula {
   std::vector<ClauseData> clauses;
   std::unordered_map<int, LitData> literals;
   int remaining;
-  void add_literal(int l, int cpos) {
-    auto s = sign(l);
-    auto pos = l*s;
-    auto it = this->literals.find(pos);
-    LitData data;
-    if (it != this->literals.end()) data = it->second;
-    if (s == 1) {
-      data.pos_clauses.push_back(cpos);
-    } else {
-      data.neg_clauses.push_back(cpos);
-    }
-    this->literals.insert_or_assign(pos, data);
-  }
-  Formula(std::vector<std::vector<int>> formula)
-        : remaining(formula.size()) {
-    for (auto c : formula) {
-      ClauseData cd;
-      cd.literals = c;
-      cd.orig_len = c.size();
-      auto cpos = this->clauses.size();
-      this->clauses.push_back(cd);
-      for (auto l : c) this->add_literal(l, cpos);
-    }
-  }
+  void add_literal(int, int);
+  Formula(std::vector<std::vector<int>>); 
 };
 /* formula ends here */
-/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::pure_literal][pure_literal]] */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::remove_satisfied][remove_satisfied]] */
 void remove_satisfied(Formula& f, int d) {
   auto& clause = f.clauses[d];
   clause.n_t++;
   f.remaining--;
-  if (VERBOSE) {
-    std::cerr << "VERBOSE: Removing satisfied clause " << d << ", "
-              << f.remaining << " Remaining" << std::endl;
-  }
   auto lits = clause.literals;
   for (auto l : lits) {
     auto s = sign(l);
@@ -129,52 +99,42 @@ void remove_satisfied(Formula& f, int d) {
   }
   clause.literals.clear();
 }
-void pure_literal_assign(Formula& f, int l, Formula::LitData& data) {
-  auto pos_size = data.pos_clauses.size();
-  auto s = (pos_size == 0) ? -1 : 1;
-  if (VERBOSE) std::cerr << "VERBOSE: Pure Literal - " << s*l << std::endl;
-  auto lclauses = (s == 1) ? data.pos_clauses : data.neg_clauses;
-  data.assn = (pos_size != 0) ? 1 : 0;
-  if (VERBOSE) {
-    std::cerr << "VERBOSE: Assigned " << l << " as "
-              << (data.assn ? "TRUE" : "FALSE") << std::endl;
-  }
-  for (auto cidx : lclauses) remove_satisfied(f, cidx);
-}
-/* pure_literal ends here */
-/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::unit_propogate][unit_propogate]] */
-void set_var(Formula& f, int l) {
+/* remove_satisfied ends here */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::set_var][set_var]] */
+bool set_var(Formula& f, int l) {
   auto s = sign(l);
   auto pos = l*s;
   auto& lit = f.literals[pos];
   if (lit.assn != -1) throw std::runtime_error("literal already assigned");
   lit.assn = (s == 1) ? 1 : 0;
-  if (VERBOSE) {
-    std::cerr << "VERBOSE: Assigned " << l*s << " as "
-              << (lit.assn ? "TRUE" : "FALSE") << std::endl;
-  }
   auto sat_c = (lit.assn == 1) ? lit.pos_clauses : lit.neg_clauses;
   auto& unsat_c = (lit.assn == 0) ? lit.pos_clauses : lit.neg_clauses;
   for (auto cidx : sat_c) remove_satisfied(f, cidx);
   for (auto cidx : unsat_c) {
     auto& clause = f.clauses[cidx];
     clause.n_f++;
-    if (VERBOSE) {
-      std::cerr << "VERBOSE: Removing " << ((lit.assn == 0) ? pos : -pos)
-                << " from clause " << cidx << std::endl;
-    }
     clause.literals.erase(std::remove(clause.literals.begin(),
                                       clause.literals.end(),
                                       (lit.assn == 0) ? pos : -pos),
                           clause.literals.end());
-    if (clause.literals.size() == 0) f.remaining--;
+    if (clause.literals.size() == 0) return false;
   }
   unsat_c.clear();
+  return true;
 }
-void unit_propogate(Formula& f, Formula::ClauseData clause) {
-  auto l = clause.literals[0];
-  if (VERBOSE) std::cerr << "[" << l << "]" << std::endl;
-  set_var(f, l);
+/* set_var ends here */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::pure_literal][pure_literal]] */
+void pure_literal_assign(Formula& f, Formula::LitData& data) {
+  auto pos_size = data.pos_clauses.size();
+  auto s = (pos_size == 0) ? -1 : 1;
+  auto lclauses = (s == 1) ? data.pos_clauses : data.neg_clauses;
+  data.assn = (s == 1) ? 1 : 0;
+  for (auto cidx : lclauses) remove_satisfied(f, cidx);
+}
+/* pure_literal ends here */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::unit_propogate][unit_propogate]] */
+bool unit_propogate(Formula& f, Formula::ClauseData clause) {
+  return set_var(f, clause.literals[0]);
 }
 /* unit_propogate ends here */
 /* [[file:~/Documents/Projects/sat-solver/serial/serial.org::branch_helper][branch_helper]] */
@@ -210,17 +170,21 @@ int apply_rule(Formula f, std::function<std::tuple<int,int,int>(Formula, int)> r
   return curr;
 }
 /* branch_helper ends here */
-/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::get_branching][get_branching]] */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::dlis][dlis]] */
 auto dlis(Formula f, int l) {
   int wp = nclauses(f, -1, l);
   int wn = nclauses(f, -1, -l);
   return std::make_tuple(wp, wn, std::max(wp, wn));
 }
+/* dlis ends here */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::dlcs][dlcs]] */
 auto dlcs(Formula f, int l) {
   int wp = nclauses(f, -1, l);
   int wn = nclauses(f, -1, -l);
   return std::make_tuple(wp, wn, wp + wn);
 }
+/* dlcs ends here */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::jw][jw]] */
 auto jw(Formula f, int l) {
   auto largest_k = get_largest_k(f);
   int wp = 0;
@@ -231,6 +195,8 @@ auto jw(Formula f, int l) {
   }
   return std::make_tuple(wp, wn, std::max(wp, wn));
 }
+/* jw ends here */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::jw2][jw2]] */
 auto jw2(Formula f, int l) {
   auto largest_k = get_largest_k(f);
   int wp = 0;
@@ -241,6 +207,8 @@ auto jw2(Formula f, int l) {
   }
   return std::make_tuple(wp, wn, wp + wn);
 }
+/* jw2 ends here */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::dsj][dsj]] */
 auto dsj(Formula f, int l) {
   auto largest_k = get_largest_k(f);
   int wp = 4*nclauses(f, 2, l) + 2*nclauses(f, 3, l);
@@ -251,6 +219,8 @@ auto dsj(Formula f, int l) {
   }
   return std::make_tuple(wp, wn, (wp+1)*(wn+1));
 }
+/* dsj ends here */
+/* [[file:~/Documents/Projects/sat-solver/serial/serial.org::get_branching][get_branching]] */
 int get_branching_variable(Formula f, BranchRule rule) {
   switch (rule) {
     case BranchRule::dlis:
@@ -268,76 +238,79 @@ int get_branching_variable(Formula f, BranchRule rule) {
 }
 /* get_branching ends here */
 /* [[file:~/Documents/Projects/sat-solver/serial/serial.org::dpll][dpll]] */
-std::tuple<bool, std::vector<int>, std::vector<int>> ret_val(Formula& f, bool sat) {
-  if (!sat) return {false, {}, {}};
-  std::vector<int> assnt;
-  std::vector<int> assnf;
-  for (auto l : f.literals) {
-    if (l.second.assn == 1)
-      assnt.push_back(l.first);
-    if (l.second.assn == 0)
-      assnf.push_back(l.first);
-  }
-  return {true, assnt, assnf};
-}
-std::tuple<bool, std::vector<int>, std::vector<int>> dpll(Formula& f, BranchRule rule) {
-  for (auto& l : f.literals) {
-    if (l.second.pure()) {
-      pure_literal_assign(f, l.first, l.second);
-    }
-  }
-  for (long unsigned int i = 0; i < f.clauses.size(); ++i) {
-    auto c = f.clauses[i];
+std::tuple<bool, Formula> dpll(Formula& f, BranchRule rule) {
+  for (auto& l : f.literals)
+    if (l.second.pure()) pure_literal_assign(f, l.second);
+  
+  for (auto& c : f.clauses) {
     if (c.sat()) continue;
-    if (c.literals.size() == 0) {
-      if (VERBOSE) std::cerr << "VERBOSE: Empty Clause - UNSAT" << std::endl;
-      return ret_val(f, false);
-    }
-    if (c.unit()) {
-      if (VERBOSE) std::cerr << "VERBOSE: Unit Propogate " << i << " ";
-      unit_propogate(f, c);
-    }
+    if (c.literals.size() == 0) return {false, f};
+    if (c.unit())
+      if (!unit_propogate(f, c)) return {false, f};
   }
-  if (f.remaining == 0) {
-    if (VERBOSE) std::cerr << "VERBOSE: No Remaining - SAT" << std::endl;
-    return ret_val(f, true);
-  }
+  
+  if (f.remaining == 0) return {true, f};
+  
   auto l = get_branching_variable(f, rule);
-  if (VERBOSE) std::cerr << "VERBOSE: Branching on " << l << std::endl;
   Formula oldf(f);
   set_var(f, l);
-  auto [res, ts, fs] = dpll(f, rule);
-  if (res) return {res, ts, fs};
-  if (VERBOSE) std::cerr << "VERBOSE: Backtracking" << std::endl;
+  auto [res, ff] = dpll(f, rule);
+  if (res) return {res, ff};
+  
   f = oldf;
-  if (VERBOSE) std::cerr << "VERBOSE: Branching on " << -l << std::endl;
   set_var(f, -l);
   return dpll(f, rule);
 }
 /* dpll ends here */
 
+
+void Formula::add_literal(int l, int cpos) {
+  auto s = sign(l);
+  auto pos = l*s;
+  auto it = this->literals.find(pos);
+  LitData data;
+  if (it != this->literals.end()) data = it->second;
+  if (s == 1) {
+    data.pos_clauses.push_back(cpos);
+  } else {
+    data.neg_clauses.push_back(cpos);
+  }
+  this->literals.insert_or_assign(pos, data);
+}
+
+Formula::Formula(std::vector<std::vector<int>> formula)
+      : remaining(formula.size()) {
+  for (auto c : formula) {
+    ClauseData cd;
+    cd.literals = c;
+    cd.orig_len = c.size();
+    auto cpos = this->clauses.size();
+    this->clauses.push_back(cd);
+    for (auto l : c) this->add_literal(l, cpos);
+  }
+}
+
 void print_graph(Formula formula) {
-  std::cerr << "VERBOSE: Literal graph is" << std::endl;
-  std::cerr << "VERBOSE: LGRAPH digraph literal {" << std::endl;
+  std::cerr << "digraph literal {" << std::endl;
   for (long unsigned int i = 0; i < formula.clauses.size(); ++i) {
-    std::cerr << "VERBOSE: LGRAPH " << i << " [shape=box];" << std::endl;
+    std::cerr << i << " [shape=box];" << std::endl;
   }
   for (auto l : formula.literals) {
     for (auto c : l.second.pos_clauses) {
-      std::cerr << "VERBOSE: LGRAPH " << l.first << " -> " << c << ";" << std::endl;
+      std::cerr << l.first << " -> " << c << ";" << std::endl;
     }
     for (auto c : l.second.neg_clauses) {
-      std::cerr << "VERBOSE: LGRAPH " << -l.first << " -> " << c << ";" << std::endl;
+      std::cerr << -l.first << " -> " << c << ";" << std::endl;
     }
   }
-  std::cerr << "VERBOSE: LGRAPH }" << std::endl;
+  std::cerr << "}" << std::endl;
 }
 
 void help(std::string name) {
   std::cout << "DPLL" << std::endl;
   std::cout << "Usage:\t" << name << " [OPTIONS]" << std::endl;
   std::cout << "\t-h\tShow this screen" << std::endl;
-  std::cout << "\t-v\tVerbose Output" << std::endl;
+  std::cout << "\t-p\tPrint graph and exit" << std::endl;
   std::cout << "\t-r <RULE>\tSet branch rule (one of dlis|dlcs|jw|jw2|dsj)" << std::endl;
 }
 
@@ -345,14 +318,15 @@ int main(int argc, char** argv) {
   int opt;
   std::string input = "";
   BranchRule rule = BranchRule::dlis;
+  bool do_graph = false;
   while ((opt = getopt(argc, argv, "hvr:")) != -1) {
     switch (opt) {
       case 'h': {
         help(argv[0]);
         return 0;
       }
-      case 'v': {
-        VERBOSE = true;
+      case 'p': {
+        do_graph = true;
         break;
       }
       case 'r': {
@@ -380,8 +354,17 @@ int main(int argc, char** argv) {
   }
   
   Formula formula(read_input());
-  if (VERBOSE) print_graph(formula);
-  auto [sat, assnt, assnf] = dpll(formula, rule);
+  if (do_graph) {
+    print_graph(formula);
+    return 0;
+  }
+  auto [sat, finalf] = dpll(formula, rule);
+  std::vector<int> assnt;
+  std::vector<int> assnf;
+  for (auto l : finalf.literals) {
+    if (l.second.assn == 1) assnt.push_back(l.first);
+    if (l.second.assn == 0) assnf.push_back(l.first);
+  }
   std::cout << "Formula is: " << (sat ? "SAT" : "UNSAT") << std::endl;
   if (!sat) return 20;
   std::cout << "Variables assigned TRUE:" << std::endl;
