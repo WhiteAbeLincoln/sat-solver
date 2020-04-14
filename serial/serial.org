@@ -283,6 +283,7 @@ void set_var(Formula& f, int l) {
                                       clause.literals.end(),
                                       (lit.assn == 0) ? pos : -pos),
                           clause.literals.end());
+    if (clause.literals.size() == 0) f.remaining--;
   }
   unsat_c.clear();
 }

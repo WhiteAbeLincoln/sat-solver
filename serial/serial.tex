@@ -1,4 +1,4 @@
-% Created 2020-04-11 Sat 05:12
+% Created 2020-04-13 Mon 18:47
 % Intended LaTeX compiler: pdflatex
 \documentclass[10pt,AMS Euler]{article}
 \usepackage[utf8]{inputenc}
@@ -30,7 +30,7 @@
 
 \maketitle
 \section*{Description}
-\label{sec:org258358d}
+\label{sec:org13ea6b3}
 The Boolean Satisfiability Problem (SAT) is an NP-complete decision problem,
 where the goal is to find whether there is an assignment of values to boolean variables
 in a propositional formula such that the formula evaluates to true. For example,
@@ -65,7 +65,7 @@ A more recent aproach is the conflict-driven clause learning algorithm (CDCL), i
 algorithm. 
 
 \section*{Implementation}
-\label{sec:org8f47c44}
+\label{sec:orgbd91c40}
 \begin{algorithm}
 \caption{The recursive DPLL algorithm}
 \label{alg:rec_dpll}
@@ -307,6 +307,7 @@ void set_var(Formula& f, int l) {
                                       clause.literals.end(),
                                       (lit.assn == 0) ? pos : -pos),
                           clause.literals.end());
+    if (clause.literals.size() == 0) f.remaining--;
   }
   unsat_c.clear();
 }
@@ -325,7 +326,7 @@ to determine a branching variable using a heuristic, and the \texttt{set\_var}
 function to handle changing the formula.
 
 \subsection*{Branching Rules}
-\label{sec:org0676d65}
+\label{sec:orgaa737ff}
 Branching rules are used for choosing which literal to set to true during
 the last step of the DPLL algorithm. These are typically based on heuristics,
 and various strategies have been formalized in papers over the years.
@@ -340,7 +341,7 @@ than one variable maximizes \(\Phi\) are broken by some rule.
 Usually \(w(F,u)\) is defined in terms of the number of clauses of length \(k\) in \(F\) that contain the
 literal \(u\), denoted \(d_k(F, u)\). A selection of some branching rules follow:
 \subsubsection*{Dynamic Largest Individual Sum (DLIS)}
-\label{sec:orgf5dfc28}
+\label{sec:orgbc7957d}
 \begin{align*}
 w(F,u) &= \sum_k d_k(F,u) \\
 \Phi(x,y) &= \max\{x,y\}
@@ -349,25 +350,25 @@ w(F,u) &= \sum_k d_k(F,u) \\
 Notice that \(\sum_k d_k(F,u)\) is simply the number of clauses in which \(u\) is present,
 since \(k\) can range from 1 to \(\infty\).
 \subsubsection*{Dynamic Largest Combined Sum (DLCS)}
-\label{sec:org401045f}
+\label{sec:org9762a82}
 \begin{align*}
 w(F,u) &= \sum_k d_k(F,u) \\
 \Phi(x,y) &= x + y
 \end{align*}
 \subsubsection*{Jeroslow-Wang (JW) rule}
-\label{sec:orgdf64cd5}
+\label{sec:orgeef19cb}
 \begin{align*}
 w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
 \Phi(x,y) &= \max\{x,y\}
 \end{align*}
 \subsubsection*{2-Sided Jeroslow-Wang rule}
-\label{sec:org6248400}
+\label{sec:org8a5faa7}
 \begin{align*}
 w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
 \Phi(x,y) &= x + y
 \end{align*}
 \subsubsection*{DSJ rule}
-\label{sec:org3ee9cdd}
+\label{sec:orgbaaee67}
 \begin{align*}
 w(F,u) &= 4d_2(F,u) + 2d_3(F,u) + \sum_{k\geq 4} d_k(F,u) \\
 \Phi(x,y) &= (x+1)(y+1)
@@ -432,11 +433,11 @@ int get_branching_variable(Formula f, BranchRule rule) {
 \end{minted}
 
 \section*{Appendix}
-\label{sec:orgd3141b6}
+\label{sec:org723a2be}
 \subsection*{Helper Code}
-\label{sec:org083f6b2}
+\label{sec:org6edef4e}
 \subsubsection*{sign}
-\label{sec:orgebdf69c}
+\label{sec:org4f7eba2}
 Apparently the standard \texttt{copysign} is slow
 \begin{minted}[]{c++}
 int sign(int x) {
@@ -446,7 +447,7 @@ int sign(int x) {
 }
 \end{minted}
 \subsubsection*{Read Input}
-\label{sec:orgb050a6a}
+\label{sec:orgc93bc3e}
 Reads input from stdin as the DIMACS cnf format.
 \begin{minted}[]{c++}
 auto read_input() {
@@ -485,13 +486,13 @@ auto read_input() {
 }
 \end{minted}
 \subsubsection*{Branching Enum}
-\label{sec:org8c77d14}
+\label{sec:org8d26f45}
 Used to specify the choice of branching rule
 \begin{minted}[]{c}
 enum class BranchRule { dlis, dlcs, jw, jw2, dsj };
 \end{minted}
 \subsubsection*{Branching Helpers}
-\label{sec:org857c10c}
+\label{sec:org4f5984f}
 Included here to save space in the main section.
 \begin{minted}[]{c}
 int nclauses(Formula f, int k, int u) {
@@ -527,7 +528,7 @@ int apply_rule(Formula f, std::function<std::tuple<int,int,int>(Formula, int)> r
 }
 \end{minted}
 \subsubsection*{Full Source}
-\label{sec:org8a60f6a}
+\label{sec:org8d78423}
 See \texttt{serial\_dpll.cpp}
 \bibliographystyle{unsrt}
 \bibliography{refs}
