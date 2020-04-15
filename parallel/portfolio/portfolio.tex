@@ -1,4 +1,4 @@
-% Created 2020-04-14 Tue 18:46
+% Created 2020-04-14 Tue 18:02
 % Intended LaTeX compiler: pdflatex
 \documentclass[10pt,AMS Euler]{article}
 \usepackage[utf8]{inputenc}
@@ -15,13 +15,13 @@
 \usepackage{capt-of}
 \usepackage{hyperref}
 \usepackage{minted}
-\input{../preamble.tex} \usepackage{algpseudocode,algorithm}
+\input{../../preamble.tex} \usepackage{algpseudocode,algorithm}
 \author{Abraham White}
 \date{\today}
-\title{Serial SAT Solver}
+\title{Parallel Portfolio SAT Solver}
 \hypersetup{
  pdfauthor={Abraham White},
- pdftitle={Serial SAT Solver},
+ pdftitle={Parallel Portfolio SAT Solver},
  pdfkeywords={},
  pdfsubject={},
  pdfcreator={Emacs 26.3 (Org mode 9.2.6)}, 
@@ -29,8 +29,10 @@
 \begin{document}
 
 \maketitle
-\section*{Description}
-\label{sec:orgd9e09e5}
+\tableofcontents
+
+\section{Description}
+\label{sec:orgd84ee01}
 The Boolean Satisfiability Problem (SAT) is an NP-complete decision problem,
 where the goal is to find whether there is an assignment of values to boolean variables
 in a propositional formula such that the formula evaluates to true. For example,
@@ -61,11 +63,21 @@ introduced in 1962 by Martin Davis, George Logemann, and Donald W. Loveland. Man
 add additional heuristics on top of the DPLL algorithm, which can increase efficiency, but adds significant
 complexity to the implementation.
 
-A more recent aproach is the conflict-driven clause learning algorithm (CDCL), inspired by the original DPLL
-algorithm. 
+Parallel SAT solvers come in two variants, \emph{portfolio} and \emph{divide-and-conquer}. A portfolio solver
+uses many different serial solvers, all racing to complete a single formula. This strategy is competitive
+because different formulas may benefit from different choices in branching strategy, but determining this
+from the beginning would be difficult.
 
-\section*{Implementation}
-\label{sec:org83aba26}
+A divide-and-conquer solver splits the search space, sending part of the problem to identical serial solvers.
+These solvers communicate back to the main process, sending learned variables or conflict clauses.
+
+\section{Implementation}
+\label{sec:orgab7a986}
+We will implement a portfolio SAT solver, which uses a basic DPLL based serial solver with varying branching
+strategies.
+
+\subsection{Serial}
+\label{sec:org748bd36}
 \begin{algorithm}
 \caption{The recursive DPLL algorithm}
 \label{alg:rec_dpll}
@@ -113,7 +125,7 @@ positive literal. Clauses are represented by a list of these integer literals, a
 by a list of clauses. We exclude 0 from the possible literals.
 For instance, we can encode the formula \((A \lor \neg B \lor \neg C) \land (\neg D \lor E \lor F)\) with
 \begin{minted}[]{c++}
-std::vector<std::vector<int>> formula = {{1, -2, -3}, {-4, 5, 6}};
+  std::vector<std::vector<int>> formula = {{1, -2, -3}, {-4, 5, 6}};
 \end{minted}
 
 Now we begin the implementation of the recursive DPLL algorithm in C++. Since C++ doesn't
@@ -133,66 +145,70 @@ or false which we can use to tell whether the clause is satisfied, unsatisfied, 
 We keep a running tally of the number of clauses that still need to be satisfied with the
 \texttt{remaining} variable.
 \begin{minted}[]{c++}
-struct Formula {
-  struct ClauseData {
-    int n_t = 0;
-    int n_f = 0;
-    std::vector<int> literals;
-    int orig_len;
-    bool sat() { return n_t >= 1; }
-    bool unsat() { return n_f == orig_len; }
-    bool unit() { return n_t == 0 && n_f == (orig_len - 1); }
+  struct Formula {
+    struct ClauseData {
+      int n_t = 0;
+      int n_f = 0;
+      std::vector<int> literals;
+      int orig_len;
+      bool sat() { return n_t >= 1; }
+      bool unsat() { return n_f == orig_len; }
+      bool unit() { return n_t == 0 && n_f == (orig_len - 1); }
+    };
+    struct LitData {
+      int assn = -1;
+      std::vector<int> pos_clauses;
+      std::vector<int> neg_clauses;
+      bool pure() {
+        return assn == -1 && (pos_clauses.size() == 0 || neg_clauses.size() == 0);
+      }
+    };
+    std::vector<ClauseData> clauses;
+    std::unordered_map<int, LitData> literals;
+    int remaining;
+    void add_literal(int, int);
+    Formula(std::vector<int>); 
   };
-  struct LitData {
-    int assn = -1;
-    std::vector<int> pos_clauses;
-    std::vector<int> neg_clauses;
-    bool pure() {
-      return assn == -1 && (pos_clauses.size() == 0 || neg_clauses.size() == 0);
-    }
-  };
-  std::vector<ClauseData> clauses;
-  std::unordered_map<int, LitData> literals;
-  int remaining;
-  void add_literal(int, int);
-  Formula(std::vector<int>); 
-};
 \end{minted}
 
 Now we implement the recursive DPLL algorithm.
 The algorithm itself is simple, but the helper functions will be more
-complicated. The literal elimination step is on lines 2 and 3,
-unit propogation on line 8, and the branching step on lines 13-21.
+complicated. The literal elimination step is on lines 3 and 4,
+unit propogation on line 9, and the branching step on lines 14-22.
 We check for termination because of empty formula on line 11, and termination
-because of empty clause on line 7.
+because of empty clause on line 8. The terminate function is called at the beginning
+of each loop to check if the algorithm should terminate because of an external factor,
+e.g. another process solving the formula.
 \begin{minted}[,linenos]{c++}
-std::tuple<bool, Formula> dpll(Formula& f, BranchRule rule) {
-  for (auto& l : f.literals)
-    if (l.second.pure()) pure_literal_assign(f, l.second);
-  
-  for (auto& c : f.clauses) {
-    if (c.sat()) continue;
-    if (c.literals.size() == 0) return {false, f};
-    if (c.unit())
-      if (!unit_propogate(f, c)) return {false, f};
+  std::tuple<bool, Formula> dpll(Formula& f, BranchRule rule, std::function<bool()> terminate) {
+    if (terminate()) return {false, f};
+    
+    for (auto&& [_f, l] : f.literals)
+      if (l.pure()) pure_literal_assign(f, l);
+
+    for (auto& c : f.clauses) {
+      if (c.sat()) continue;
+      if (c.literals.size() == 0) return {false, f};
+      if (c.unit())
+        if (!unit_propogate(f, c)) return {false, f};
+    }
+
+    if (f.remaining == 0) return {true, f};
+
+    auto l = get_branching_variable(f, rule);
+    Formula oldf(f);
+    set_var(f, l);
+    auto [res, ff] = dpll(f, rule, terminate);
+    if (res) return {res, ff};
+
+    f = oldf;
+    set_var(f, -l);
+    return dpll(f, rule, terminate);
   }
-  
-  if (f.remaining == 0) return {true, f};
-  
-  auto l = get_branching_variable(f, rule);
-  Formula oldf(f);
-  set_var(f, l);
-  auto [res, ff] = dpll(f, rule);
-  if (res) return {res, ff};
-  
-  f = oldf;
-  set_var(f, -l);
-  return dpll(f, rule);
-}
 \end{minted}
 
-\subsection*{Literal Elimination}
-\label{sec:orgbac104c}
+\subsubsection{Literal Elimination}
+\label{sec:orgdfe9566}
 First we handle the pure literal step, which removes whole clauses from
 consideration by assigning truth values. In the \texttt{pure\_literal\_assign}
 function, we determine the sign of the literal by the clauses it is
@@ -211,8 +227,8 @@ void pure_literal_assign(Formula& f, Formula::LitData& data) {
 }
 \end{minted}
 
-\subsection*{Unit Propogation}
-\label{sec:org09a1441}
+\subsubsection{Unit Propogation}
+\label{sec:org3ebaaef}
 The next loop in the dpll implementation helps with unit propogation.
 We skip over clauses that have already been satisfied, terminating when we
 have a clause that is empty, i.e. there was a conflicting literal asignment.
@@ -226,8 +242,8 @@ bool unit_propogate(Formula& f, Formula::ClauseData clause) {
 }
 \end{minted}
 
-\subsection*{Branching}
-\label{sec:org6f0cd34}
+\subsubsection{Branching}
+\label{sec:org70cd821}
 Back in the dpll implmentation, we check if there are any remaining undetermined
 clauses, returning true if we have satisfied all. Finally, we pick a
 variable using a heuristic and branch, backtracking if the first choice of
@@ -235,8 +251,12 @@ assignment doesn't work. For this we use the \texttt{get\_branching\_variable} f
 to determine a branching variable using a heuristic, and the \texttt{set\_var}
 function to handle changing the formula.
 
+Since we may have more processors than branching rules, we also define a
+branching strategy which randomly chooses a literal out of the unassigned
+literals.
+
 \begin{minted}[]{c}
-enum class BranchRule { dlis, dlcs, jw, jw2, dsj };
+enum class BranchRule { dlis, dlcs, jw, jw2, dsj, rand };
 \end{minted}
 \begin{minted}[]{c++}
 std::string branch_rule_name(BranchRule rule) {
@@ -251,28 +271,55 @@ std::string branch_rule_name(BranchRule rule) {
       return "jw2";
     case BranchRule::dsj:
       return "dsj";
+    case BranchRule::rand:
+      return "rand";
   }
   throw std::runtime_error("branch_rule_name didn't handle all cases");
 }
 int get_branching_variable(Formula f, BranchRule rule) {
+  int curr = 0;
   switch (rule) {
     case BranchRule::dlis:
-      return apply_rule(f, &dlis);
+      curr = apply_rule(f, &dlis);
+      break;
     case BranchRule::dlcs:
-      return apply_rule(f, &dlcs);
+      curr = apply_rule(f, &dlcs);
+      break;
     case BranchRule::jw:
-      return apply_rule(f, &jw);
+      curr = apply_rule(f, &jw);
+      break;
     case BranchRule::jw2:
-      return apply_rule(f, &jw2);
+      curr = apply_rule(f, &jw2);
+      break;
     case BranchRule::dsj:
-      return apply_rule(f, &dsj);
+      curr = apply_rule(f, &dsj);
+      break;
+    case BranchRule::rand: {
+      bool positive = std::rand() % 2;
+      int i = 0;
+      long unsigned int iter = 0;
+      do {
+        i = 1 + std::rand() % f.literals.size();
+        iter++;
+      } while (f.literals[i].assn != -1 && iter < f.literals.size());
+      if (i == 0) throw std::runtime_error("random branch failed");
+      curr = (positive ? i : -i);
+      break;
+    }
+    default:
+      throw std::runtime_error("get_branching_variable didn't handle all cases");
   }
-  throw std::runtime_error("get_branching_variable didn't handle all cases");
+  if (curr == 0)
+    throw std::runtime_error("branching heuristic failed: " + branch_rule_name(rule));
+  return curr;
+}
+BranchRule branch_rule_int(int i) {
+  return (i > static_cast<int>(BranchRule::rand)) ? BranchRule::rand : static_cast<BranchRule>(i);
 }
 \end{minted}
 
-\subsection*{Branching Rules}
-\label{sec:orgd6e7bfe}
+\subsubsection{Branching Rules}
+\label{sec:org3d2a36f}
 Branching rules are used for choosing which literal to set to true during
 the last step of the DPLL algorithm. These are typically based on heuristics,
 and various strategies have been formalized in papers over the years.
@@ -286,8 +333,9 @@ than one variable maximizes \(\Phi\) are broken by some rule.
 
 Usually \(w(F,u)\) is defined in terms of the number of clauses of length \(k\) in \(F\) that contain the
 literal \(u\), denoted \(d_k(F, u)\). A selection of some branching rules follow:
-\subsubsection*{Dynamic Largest Individual Sum (DLIS)}
-\label{sec:org8728141}
+\begin{enumerate}
+\item Dynamic Largest Individual Sum (DLIS)
+\label{sec:orgdcf0a4b}
 \begin{align*}
 w(F,u) &= \sum_k d_k(F,u) \\
 \Phi(x,y) &= \max\{x,y\}
@@ -302,8 +350,8 @@ auto dlis(Formula f, int l) {
   return std::make_tuple(wp, wn, std::max(wp, wn));
 }
 \end{minted}
-\subsubsection*{Dynamic Largest Combined Sum (DLCS)}
-\label{sec:org47c0a28}
+\item Dynamic Largest Combined Sum (DLCS)
+\label{sec:org94eaf55}
 \begin{align*}
 w(F,u) &= \sum_k d_k(F,u) \\
 \Phi(x,y) &= x + y
@@ -315,8 +363,8 @@ auto dlcs(Formula f, int l) {
   return std::make_tuple(wp, wn, wp + wn);
 }
 \end{minted}
-\subsubsection*{Jeroslow-Wang (JW) rule}
-\label{sec:org8dcd6cf}
+\item Jeroslow-Wang (JW) rule
+\label{sec:orgddf561c}
 \begin{align*}
 w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
 \Phi(x,y) &= \max\{x,y\}
@@ -333,8 +381,8 @@ auto jw(Formula f, int l) {
   return std::make_tuple(wp, wn, std::max(wp, wn));
 }
 \end{minted}
-\subsubsection*{2-Sided Jeroslow-Wang rule}
-\label{sec:org9f34740}
+\item 2-Sided Jeroslow-Wang rule
+\label{sec:org9570d33}
 \begin{align*}
 w(F,u) &= \sum_k 2^{-k} d_k(F,u) \\
 \Phi(x,y) &= x + y
@@ -351,8 +399,8 @@ auto jw2(Formula f, int l) {
   return std::make_tuple(wp, wn, wp + wn);
 }
 \end{minted}
-\subsubsection*{DSJ rule}
-\label{sec:org16f4a21}
+\item DSJ rule
+\label{sec:org194d25d}
 \begin{align*}
 w(F,u) &= 4d_2(F,u) + 2d_3(F,u) + \sum_{k\geq 4} d_k(F,u) \\
 \Phi(x,y) &= (x+1)(y+1)
@@ -369,9 +417,10 @@ auto dsj(Formula f, int l) {
   return std::make_tuple(wp, wn, (wp+1)*(wn+1));
 }
 \end{minted}
+\end{enumerate}
 
-\subsection*{Assigning literals and removing satsified clauses}
-\label{sec:org3816385}
+\subsubsection{Assigning literals and removing satsified clauses}
+\label{sec:org87c3748}
 We can remove satisfied clauses from the graph using the \texttt{remove\_satisfied}
 function. This function first increments the number of literals assigned true
 contained in the clause, and decrements the number of remaining unsatisfied
@@ -429,33 +478,117 @@ bool set_var(Formula& f, int l) {
   return true;
 }
 \end{minted}
-\section*{Build and Run}
-\label{sec:org10ef911}
+\subsection{Parallel}
+\label{sec:org807b379}
+First, process 0 reads the formula from standard input and distributes it
+to all other processes.
+\begin{minted}[]{c++}
+int* form;
+int form_c;
+std::vector<int> f;
+if (rank == 0) {
+  f = read_input();
+  form = f.data();
+  form_c = f.size();
+}
+MPI_Bcast(&form_c, 1, MPI_INT, 0, MCW);
+if (rank != 0) form = (int*)malloc(sizeof(int) * form_c);
+MPI_Bcast(form, form_c, MPI_INT, 0, MCW);
+if (rank != 0) f = std::vector<int>(form, form + form_c);
+Formula formula(f);
+\end{minted}
+
+Next, all the other processes create the formula and begin their computations.
+The branching strategy is determined by the process rank. On each iteration
+of the dpll algorithm the process checks if the master has indicated that the
+formula has been solved. If this process finds the formula to be SAT, it creates
+an array consisting of the literals assigned true, a zero to separate,
+and the literals assigned false. This array is sent to the master process.
+Otherwise, if the formula is UNSAT, a single 0 is sent to the master process to
+indicate that this process found it to be UNSAT.
+\begin{minted}[]{c++}
+if (rank != 0) {
+  std::srand(rank);
+  auto rule = branch_rule_int(rank - 1);
+  int early_term = 0;
+  auto [sat, finalf] = dpll(formula, rule,
+                            [&]() {
+                              MPI_Iprobe(0, 0, MCW, &early_term, MPI_STATUS_IGNORE);
+                              return static_cast<bool>(early_term);
+                            });
+
+  if (sat) {
+    std::vector<int> assn;
+    for (auto l : finalf.literals) {
+      if (l.second.assn == 1) assn.push_back(l.first);
+    }
+    assn.push_back(0);
+    for (auto l : finalf.literals) {
+      if (l.second.assn == 0) assn.push_back(l.first);
+    }
+
+    MPI_Send(assn.data(), assn.size(), MPI_INT, 0, 0, MCW);
+  } else if (!early_term) {
+    int data = 0;
+    MPI_Send(&data, 1, MPI_INT, 0, 0, MCW);
+  }
+}
+\end{minted}
+
+The master process waits until it receives a message from
+a process. Since our sub-processes use a complete SAT solver,
+we can finish once a single process has determined the formula
+to be SAT or UNSAT. The master then tells all of the workers
+to terminate and reports the results.
+\begin{minted}[]{c++}
+if (rank == 0) {
+  int* buff = (int*)malloc(sizeof(int) * (formula.literals.size() + 1));
+  MPI_Status status;
+  MPI_Recv(buff, formula.literals.size() + 1, MPI_INT, MPI_ANY_SOURCE, 0, MCW, &status);
+  int solver_rank = status.MPI_SOURCE;
+  for (int i = 1; i < size; ++i) {
+    if (i == solver_rank) continue;
+    int data = 0;
+    MPI_Send(&data, 1, MPI_INT, i, 0, MCW);
+  }
+  
+  if (buff[0] == 0) {
+    std::cout << "Formula is: UNSAT" << std::endl;
+    std::cout << "Solved By process " << solver_rank << " with branching strategy "
+              << branch_rule_name(branch_rule_int(solver_rank-1)) << std::endl;
+  } else {
+    std::cout << "Formula is: SAT" << std::endl;
+    std::cout << "Solved By process " << solver_rank << " with branching strategy "
+              << branch_rule_name(branch_rule_int(solver_rank-1)) << std::endl;
+    std::cout << "Variables assigned TRUE:" << std::endl;
+    for (long unsigned int i = 0; i < formula.literals.size() + 1; ++i) {
+      if (buff[i] == 0)
+        std::cout << "\nVariables assigned FALSE:" << std::endl;
+      else
+        std::cout << buff[i] << " ";
+    }
+  }
+}
+\end{minted}
+\section{Build and Run}
+\label{sec:orgd6fbbd4}
 Compile with
 \begin{minted}[]{bash}
-g++ -Wall -Wextra -Werror -std=c++17 -o serial serial_dpll.cpp
+mpic++ -Wall -Wextra -std=c++17 -lm -g -o portfolio parallel_dpll.cpp
 \end{minted}
 Run with the following, where \texttt{\$CNF\_FILE} is the path to the test file in CNF format.
 \begin{minted}[]{bash}
-./serial < $CNF_FILE
+mprun -np 8 --use-hwthread-cpus ./portfolio < $CNF_FILE
 \end{minted}
-Use the \texttt{-h} argument to get possible options, such as specifying the branch strategy.
-\section*{Performance}
-\label{sec:orge4122c6}
-\begin{center}
-\begin{tabular}{lrrrr}
-Test Suite & max & min & mean & median\\
-\hline
-uf50-218 (SAT) & 4.82 & 0.08 & 0.54896 & 0.27\\
-uuf50-218 (UNSAT) &  &  &  & \\
-\end{tabular}
-\end{center}
-\section*{Appendix}
-\label{sec:orgf458f78}
-\subsection*{Helper Code}
-\label{sec:orgf7de839}
-\subsubsection*{Read Input}
-\label{sec:org3c67782}
+\section{Performance}
+\label{sec:org1f1463e}
+
+\section{Appendix}
+\label{sec:org851c47d}
+\subsection{Helper Code}
+\label{sec:org66b988a}
+\subsubsection{Read Input}
+\label{sec:orgd9bd649}
 Reads input from stdin as the DIMACS cnf format.
 \begin{minted}[]{c++}
 auto read_input() {
@@ -481,8 +614,8 @@ auto read_input() {
   return f;
 }
 \end{minted}
-\subsubsection*{Branching Helpers}
-\label{sec:org29b38c4}
+\subsubsection{Branching Helpers}
+\label{sec:org358dc03}
 Included here to save space in the main section.
 \begin{minted}[]{c}
 int nclauses(Formula f, int k, int u) {
@@ -513,13 +646,12 @@ int apply_rule(Formula f, std::function<std::tuple<int,int,int>(Formula, int)> r
       maximum = phi;
     }
   }
-  if (curr == 0) throw std::runtime_error("branching heuristic failed");
   return curr;
 }
 \end{minted}
-\subsubsection*{Full Source}
-\label{sec:orgeb1a1b3}
-See \texttt{serial\_dpll.cpp}
+\subsubsection{Full Source}
+\label{sec:org690f22f}
+See \texttt{parallel\_dpll.cpp}.
 \bibliographystyle{unsrt}
 \bibliography{refs}
 \end{document}

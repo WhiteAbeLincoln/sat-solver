@@ -17,9 +17,7 @@ int sign(int x) {
 }
 /* [[file:~/Documents/Projects/sat-solver/serial/serial.org::read_input][read_input]] */
 auto read_input() {
-  bool cnf_mode = false;
-  std::vector<std::vector<int>> f;
-  std::vector<int> clause;
+  std::vector<int> f;
   for (std::string l; std::getline(std::cin, l);) {
     if (l.empty()) continue;
     std::stringstream ss(l);
@@ -29,23 +27,13 @@ auto read_input() {
     if (word == "p") {
       ss >> word;
       if (word != "cnf") throw std::invalid_argument("Data must be in cnf format, got " + word);
-      cnf_mode = true;
       continue;
     }
     do {
       if (word == "%") return f;
       int v = std::stoi(word);
-      if (v == 0) {
-        f.push_back(clause);
-        clause.clear();
-      } else {
-        clause.push_back(v);
-      }
+      f.push_back(v);
     } while (ss >> word);
-    if (!cnf_mode) { 
-      f.push_back(clause);
-      clause.clear();
-    }
   }
   
   return f;
@@ -77,7 +65,7 @@ struct Formula {
   std::unordered_map<int, LitData> literals;
   int remaining;
   void add_literal(int, int);
-  Formula(std::vector<std::vector<int>>); 
+  Formula(std::vector<int>); 
 };
 /* formula ends here */
 /* [[file:~/Documents/Projects/sat-solver/serial/serial.org::remove_satisfied][remove_satisfied]] */
@@ -221,6 +209,21 @@ auto dsj(Formula f, int l) {
 }
 /* dsj ends here */
 /* [[file:~/Documents/Projects/sat-solver/serial/serial.org::get_branching][get_branching]] */
+std::string branch_rule_name(BranchRule rule) {
+  switch (rule) {
+    case BranchRule::dlis:
+      return "dlis";
+    case BranchRule::dlcs:
+      return "dlcs";
+    case BranchRule::jw:
+      return "jw";
+    case BranchRule::jw2:
+      return "jw2";
+    case BranchRule::dsj:
+      return "dsj";
+  }
+  throw std::runtime_error("branch_rule_name didn't handle all cases");
+}
 int get_branching_variable(Formula f, BranchRule rule) {
   switch (rule) {
     case BranchRule::dlis:
@@ -278,16 +281,20 @@ void Formula::add_literal(int l, int cpos) {
   this->literals.insert_or_assign(pos, data);
 }
 
-Formula::Formula(std::vector<std::vector<int>> formula)
-      : remaining(formula.size()) {
-  for (auto c : formula) {
-    ClauseData cd;
-    cd.literals = c;
-    cd.orig_len = c.size();
-    auto cpos = this->clauses.size();
-    this->clauses.push_back(cd);
-    for (auto l : c) this->add_literal(l, cpos);
+Formula::Formula(std::vector<int> formula) {
+  ClauseData cd;
+  for (auto l : formula) {
+    if (l == 0) {
+      cd.orig_len = cd.literals.size();
+      this->clauses.push_back(cd);
+      cd = ClauseData{};
+    } else {
+      cd.literals.push_back(l);
+      auto cpos = this->clauses.size();
+      this->add_literal(l, cpos);
+    }
   }
+  this->remaining = this->clauses.size();
 }
 
 void print_graph(Formula formula) {
@@ -364,8 +371,11 @@ int main(int argc, char** argv) {
   for (auto l : finalf.literals) {
     if (l.second.assn == 1) assnt.push_back(l.first);
     if (l.second.assn == 0) assnf.push_back(l.first);
+    if (l.second.assn == -1)
+      std::cout << "Got unassigned " << l.first << std::endl;
   }
   std::cout << "Formula is: " << (sat ? "SAT" : "UNSAT") << std::endl;
+  std::cout << "Solved By " << branch_rule_name(rule) << std::endl;
   if (!sat) return 20;
   std::cout << "Variables assigned TRUE:" << std::endl;
   for (auto l : assnt) std::cout << l << " ";
